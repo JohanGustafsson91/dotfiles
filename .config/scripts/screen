@@ -1,0 +1,7 @@
+chosen=$(printf "Single screen\nMultiple screens" | rofi -dmenu -i)
+
+case "$chosen" in
+	"Single screen") ~/.config/scripts/single-screen.sh ;;
+	"Multiple screens") ~/.config/scripts/home-all-screens.sh ;;
+	*) exit 1 ;;
+esac
