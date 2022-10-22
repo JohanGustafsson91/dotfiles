@@ -1,2 +1,5 @@
 alias screen='~/.config/scripts/screen'
 alias select-code-repo='~/.config/scripts/select-code-repo.sh'
+alias activate-fn-keys='echo 0 | sudo tee /sys/module/hid_apple/parameters/fnmode'
+alias config='/usr/bin/git --git-dir=/home/johan/.cfg/ --work-tree=/home/johan'
+alias persist-ssh='eval `ssh-agent` && [ $SSH_AGENT_PID ] && ( ssh-add -l >/dev/null 2>&1 || ssh-add )'
