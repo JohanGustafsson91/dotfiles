@@ -210,6 +210,9 @@ bar {
         }
 }
 
+# Lock screen
+bindsym $mod+shift+x exec ~/.config/scripts/lockscreen.sh
+
 # keyboard
 exec_always xset r rate 200 50
 
