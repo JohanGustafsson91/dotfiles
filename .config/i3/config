@@ -210,6 +210,8 @@ bar {
         }
 }
 
+workspace_auto_back_and_forth yes
+
 # Lock screen
 bindsym $mod+shift+x exec ~/.config/scripts/lockscreen.sh
 
