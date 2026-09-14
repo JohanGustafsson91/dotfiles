@@ -1,0 +1,344 @@
+# i3 config file (v4)
+
+set $mod Mod4
+
+# ============================================================
+# Font
+# ============================================================
+
+font pango:JetBrains Mono Regular 12
+
+# ============================================================
+# XDG autostart
+# ============================================================
+
+exec --no-startup-id dex --autostart --environment i3
+
+# ============================================================
+# Lock screen before suspend
+# ============================================================
+
+exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
+
+# ============================================================
+# NetworkManager tray
+# ============================================================
+
+exec --no-startup-id nm-applet
+
+# ============================================================
+# Audio
+# ============================================================
+
+set $refresh_i3blocks pkill -RTMIN+10 i3blocks
+
+bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +10% && $refresh_i3blocks
+bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3blocks
+bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3blocks
+bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3blocks
+
+# ============================================================
+# Mouse + Mod to drag floating windows
+# ============================================================
+
+floating_modifier $mod
+
+# ============================================================
+# Terminal
+# ============================================================
+
+# Terminal on current workspace
+bindsym $mod+Return exec alacritty
+
+# Terminal on Code workspace
+bindsym $mod+Shift+Return workspace $ws2; exec alacritty
+
+# ============================================================
+# Kill focused window
+# ============================================================
+
+bindsym $mod+Shift+q kill
+
+# ============================================================
+# Rofi
+# ============================================================
+
+bindsym $mod+d exec rofi -show drun
+bindsym Mod1+space exec rofi -show drun
+bindsym $mod+Shift+f exec rofi -show window
+bindsym $mod+ctrl+a exec ~/.config/scripts/aliases.sh
+
+# ============================================================
+# Focus
+# ============================================================
+
+# Same HJKL workflow as AeroSpace
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+# ============================================================
+# Move windows
+# ============================================================
+
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+# ============================================================
+# Splitting
+# ============================================================
+
+bindsym $mod+o split h
+bindsym $mod+v split v
+
+# ============================================================
+# Fullscreen
+# ============================================================
+
+bindsym $mod+f fullscreen toggle
+
+# ============================================================
+# Layout
+# ============================================================
+
+# AeroSpace:
+# alt-s = v_accordion
+# alt-w = h_accordion
+# alt-e = tiles
+
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+e layout toggle split
+
+# ============================================================
+# Floating
+# ============================================================
+
+bindsym $mod+Shift+space floating toggle
+
+# Focus between tiling/floating
+bindsym $mod+space focus mode_toggle
+
+# ============================================================
+# Parent / child
+# ============================================================
+
+bindsym $mod+a focus parent
+# bindsym $mod+d focus child
+
+# ============================================================
+# Workspaces
+# ============================================================
+
+set $ws1 "1: Browser"
+set $ws2 "2: Code"
+set $ws3 "3: Terminals"
+set $ws4 "4"
+set $ws5 "5"
+set $ws6 "6: AI Chat"
+set $ws7 "7"
+set $ws8 "8: Mail"
+set $ws9 "9: Slack"
+set $ws10 "10: Spotify"
+
+# ============================================================
+# Workspace switching
+# ============================================================
+
+# F1-F10 = workspace switching
+bindsym F1 workspace number $ws1
+bindsym F2 workspace number $ws2
+bindsym F3 workspace number $ws3
+bindsym F4 workspace number $ws4
+bindsym F5 workspace number $ws5
+bindsym F6 workspace number $ws6
+bindsym F7 workspace number $ws7
+bindsym F8 workspace number $ws8
+bindsym F9 workspace number $ws9
+bindsym F10 workspace number $ws10
+
+# Mod + F1-F10 = workspace switching
+# Useful when the keyboard's F-keys require Fn
+bindsym $mod+F1 workspace number $ws1
+bindsym $mod+F2 workspace number $ws2
+bindsym $mod+F3 workspace number $ws3
+bindsym $mod+F4 workspace number $ws4
+bindsym $mod+F5 workspace number $ws5
+bindsym $mod+F6 workspace number $ws6
+bindsym $mod+F7 workspace number $ws7
+bindsym $mod+F8 workspace number $ws8
+bindsym $mod+F9 workspace number $ws9
+bindsym $mod+F10 workspace number $ws10
+
+# ============================================================
+# Move focused container to workspace
+# ============================================================
+
+bindsym Shift+F1 move container to workspace number $ws1
+bindsym Shift+F2 move container to workspace number $ws2
+bindsym Shift+F3 move container to workspace number $ws3
+bindsym Shift+F4 move container to workspace number $ws4
+bindsym Shift+F5 move container to workspace number $ws5
+bindsym Shift+F6 move container to workspace number $ws6
+bindsym Shift+F7 move container to workspace number $ws7
+bindsym Shift+F8 move container to workspace number $ws8
+bindsym Shift+F9 move container to workspace number $ws9
+bindsym Shift+F10 move container to workspace number $ws10
+
+# ============================================================
+# Workspace navigation
+# ============================================================
+
+# AeroSpace alt-tab = workspace back and forth
+bindsym $mod+Tab workspace back_and_forth
+
+# ============================================================
+# Autostart
+# ============================================================
+
+exec spotify
+
+# ============================================================
+# Programs on workspaces
+# ============================================================
+
+# Messenger
+assign [instance="crx_bbdeiblfgdokhlblpgeaokenkfknecgl"] $ws3 
+assign [class="Google-chrome"] $ws1
+assign [class="chatgpt.com"] $ws6
+assign [class="Slack"] $ws9
+assign [class="Spotify"] $ws10
+
+# ============================================================
+# i3 controls
+# ============================================================
+
+# Reload configuration
+bindsym $mod+Shift+c reload
+
+# Restart i3
+bindsym $mod+Shift+r restart
+
+# Exit i3
+bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -B 'Yes, exit i3' 'i3-msg exit'"
+
+# ============================================================
+# Resize mode
+# ============================================================
+
+mode "resize" {
+    bindsym h resize shrink width 50 px or 5 ppt
+    bindsym j resize shrink height 50 px or 5 ppt
+    bindsym k resize grow height 50 px or 5 ppt
+    bindsym l resize grow width 50 px or 5 ppt
+
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+    bindsym $mod+r mode "default"
+}
+
+bindsym $mod+r mode "resize"
+
+# ============================================================
+# Borders
+# ============================================================
+
+default_border pixel 3
+default_floating_border pixel 3
+
+# Focused window
+# Inspired by AeroSpace / JankyBorders
+client.focused #47FF9C #011423 #CBE0F0 #47FF9C #47FF9C
+
+# Focused window inside inactive container
+client.focused_inactive #275378 #011423 #CBE0F0 #275378 #275378
+
+# Unfocused windows
+client.unfocused #214969 #011423 #5C7A91 #214969 #214969
+
+# Urgent window
+client.urgent #E52E2E #011423 #FFFFFF #E52E2E #E52E2E
+
+# ============================================================
+# Gaps
+# ============================================================
+
+# Same as AeroSpace
+gaps inner 8
+gaps outer 5
+
+# ============================================================
+# i3bar / i3blocks
+# ============================================================
+
+bar {
+    status_command /usr/bin/i3blocks -c ~/.config/i3/i3blocks.conf
+
+    set $bg-color #011423
+    set $inactive-bg-color #0e2a3f
+    set $text-color #CBE0F0
+    set $inactive-text-color #5C7A91
+
+    colors {
+        background $bg-color
+
+        focused_workspace \
+            #275378 \
+            #275378 \
+            #CBE0F0
+
+        active_workspace \
+            #0e2a3f \
+            #0e2a3f \
+            #5C7A91
+
+        inactive_workspace \
+            #011423 \
+            #011423 \
+            #5C7A91
+
+        urgent_workspace \
+            #E52E2E \
+            #E52E2E \
+            #FFFFFF
+    }
+}
+
+workspace_auto_back_and_forth yes
+
+# ============================================================
+# Lock screen
+# ============================================================
+
+bindsym $mod+shift+x exec ~/.config/scripts/lockscreen.sh
+
+# ============================================================
+# Keyboard
+# ============================================================
+
+exec_always xset r rate 200 50
+
+# Caps Lock -> Ctrl
+exec_always setxkbmap -option caps:ctrl_modifier
+
+# ============================================================
+# Touchpad
+# ============================================================
+
+exec_always xinput set-prop 9 "libinput Natural Scrolling Enabled" 1
+
+# ============================================================
+# Screen brightness
+# ============================================================
+
+bindsym XF86MonBrightnessUp exec --no-startup-id brightnessctl set 10%+
+bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 10%-
+
+# ============================================================
+# Wallpaper
+# ============================================================
+
+# exec_always feh --bg-scale ~/Pictures/bg.jpg

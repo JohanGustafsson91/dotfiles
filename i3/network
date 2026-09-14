@@ -1,0 +1,26 @@
+#!/bin/bash
+
+connection=$(nmcli -t -f TYPE,STATE,CONNECTION dev status | \
+    awk -F: '$1=="wifi" && $2=="connected" {print $3; exit}')
+
+signal=$(nmcli -t -f IN-USE,SIGNAL dev wifi | \
+    awk -F: '$1=="*" {print $2; exit}')
+
+if [ -z "$connection" ]; then
+    echo "󰖪 offline"
+    exit
+fi
+
+if [ "$signal" -ge 80 ]; then
+    icon="󰤨"
+elif [ "$signal" -ge 60 ]; then
+    icon="󰤥"
+elif [ "$signal" -ge 40 ]; then
+    icon="󰤢"
+elif [ "$signal" -ge 20 ]; then
+    icon="󰤟"
+else
+    icon="󰤯"
+fi
+
+echo "$icon  $connection"

@@ -1,0 +1,21 @@
+# Local credentials and overrides
+.bash_secrets
+.env
+.env.*
+*.local
+
+# Generated files
+node_modules/
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Keep Git identities and private key files out of this repository
+.gitconfig
+.git-credentials
+.ssh/
+.gnupg/
+*.key
+*.pem
