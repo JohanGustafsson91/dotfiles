@@ -126,3 +126,4 @@ if [ -f "$HOME/.bash_secrets" ]; then
     . "$HOME/.bash_secrets"
 fi
 eval "$(starship init bash)"
+alias nmtui="$HOME/.local/bin/nmtui-themed"

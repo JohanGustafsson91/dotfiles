@@ -53,7 +53,7 @@ bindsym $mod+Shift+q kill
 
 bindsym $mod+d exec rofi -show drun
 bindsym $mod+Shift+f exec rofi -show window
-bindsym $mod+ctrl+a exec  ~/.config/scripts/aliases.sh
+bindsym $mod+Shift+a exec ~/.config/scripts/aliases.sh
 
 # change focus
 bindsym $mod+j focus left

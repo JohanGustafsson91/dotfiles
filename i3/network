@@ -6,6 +6,9 @@ connection=$(nmcli -t -f TYPE,STATE,CONNECTION dev status | \
 signal=$(nmcli -t -f IN-USE,SIGNAL dev wifi | \
     awk -F: '$1=="*" {print $2; exit}')
 
+vpn=$(nmcli -t -f TYPE,STATE,NAME connection show --active | \
+    awk -F: '$1=="vpn" && $2=="activated" {print "🔒 " $3; exit}')
+
 if [ -z "$connection" ]; then
     echo "󰖪 offline"
     exit
@@ -23,4 +26,4 @@ else
     icon="󰤯"
 fi
 
-echo "$icon  $connection"
+echo "$icon  $connection${vpn:+  $vpn}"
