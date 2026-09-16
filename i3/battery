@@ -1,0 +1,29 @@
+#!/bin/sh
+
+line=$(acpi -b 2>/dev/null | sed -n '1p')
+
+if [ "${BLOCK_BUTTON:-}" = 1 ]; then
+    notify-send 'Battery' "$(printf '%s' "$line" | sed 's/^Battery [^:]*: //')" >/dev/null 2>&1
+fi
+
+status=$(printf '%s\n' "$line" | sed -n 's/^Battery [^:]*: \([^,]*\), \([0-9][0-9]*\)%.*/\1/p')
+percent=$(printf '%s\n' "$line" | sed -n 's/^Battery [^:]*: [^,]*, \([0-9][0-9]*\)%.*/\1/p')
+
+if [ -z "$percent" ]; then
+    text=' n/a'
+    color='#5C7A91'
+elif [ "$status" = 'Discharging' ] && [ "$percent" -lt 20 ]; then
+    text=" $percent%"
+    color='#E52E2E'
+elif [ "$status" = 'Discharging' ] && [ "$percent" -lt 40 ]; then
+    text=" $percent%"
+    color='#FFCC66'
+else
+    text=" $percent%"
+    case "$status" in
+        Charging|Full) color='#47FF9C' ;;
+        *) color='#CBE0F0' ;;
+    esac
+fi
+
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"

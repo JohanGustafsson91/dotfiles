@@ -1,0 +1,19 @@
+#!/bin/sh
+
+usage=$(LC_ALL=C mpstat 1 1 2>/dev/null | awk '/Average:/ && $NF ~ /^[0-9.]+$/ { printf "%.0f", 100 - $NF; exit }')
+
+if [ -n "$usage" ]; then
+    if [ "$usage" -ge 90 ]; then
+        color='#E52E2E'
+    elif [ "$usage" -ge 70 ]; then
+        color='#FFCC66'
+    else
+        color='#CBE0F0'
+    fi
+    text=" $usage%"
+else
+    text=' n/a'
+    color='#5C7A91'
+fi
+
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"

@@ -1,0 +1,19 @@
+#!/bin/sh
+
+used=$(free -m | awk '/^Mem:/ { if ($2 > 0) printf "%.0f", (($2 - $7) / $2) * 100 }')
+
+if [ -n "$used" ]; then
+    if [ "$used" -ge 90 ]; then
+        color='#E52E2E'
+    elif [ "$used" -ge 75 ]; then
+        color='#FFCC66'
+    else
+        color='#CBE0F0'
+    fi
+    text=" $used%"
+else
+    text=' n/a'
+    color='#5C7A91'
+fi
+
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"

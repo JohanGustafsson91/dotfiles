@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ "${BLOCK_BUTTON:-}" = 1 ]; then
+    alacritty --config-file ~/.config/alacritty/nmtui.toml --title 'Network' -e nmtui >/dev/null 2>&1 &
+fi
+
 connection=$(nmcli -t -f TYPE,STATE,CONNECTION dev status | \
     awk -F: '$1=="wifi" && $2=="connected" {print $3; exit}')
 

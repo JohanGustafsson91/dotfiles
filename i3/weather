@@ -1,0 +1,22 @@
+#!/bin/sh
+
+if [ -n "${WEATHER_LOCATION:-}" ]; then
+    location=$WEATHER_LOCATION
+else
+    location=$(curl -fsS --max-time 3 https://ipapi.co/city/ 2>/dev/null | tr -d '\r\n' || true)
+fi
+
+[ -n "$location" ] || location=Trollhättan
+encoded_location=$(printf '%s' "$location" | jq -sRr @uri)
+
+if [ "${BLOCK_BUTTON:-}" = 1 ]; then
+    xdg-open "https://wttr.in/${encoded_location}" >/dev/null 2>&1 &
+fi
+
+weather=$(curl -fsS --max-time 4 "https://wttr.in/${encoded_location}?format=%l+%c+%t" 2>/dev/null || true)
+
+if [ -n "$weather" ]; then
+    printf '%s\n' "$weather"
+else
+    printf 'WEATHER offline\n'
+fi

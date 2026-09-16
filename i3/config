@@ -6,7 +6,7 @@ set $mod Mod4
 # Font
 # ============================================================
 
-font pango:JetBrains Mono Regular 12
+font pango:MesloLGL Nerd Font Propo 11.5
 
 # ============================================================
 # XDG autostart
@@ -19,12 +19,6 @@ exec --no-startup-id dex --autostart --environment i3
 # ============================================================
 
 exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
-
-# ============================================================
-# NetworkManager tray
-# ============================================================
-
-exec --no-startup-id nm-applet
 
 # ============================================================
 # Audio
@@ -66,7 +60,8 @@ bindsym $mod+Shift+q kill
 bindsym $mod+d exec rofi -show drun
 bindsym Mod1+space exec rofi -show drun
 bindsym $mod+Shift+f exec rofi -show window
-bindsym $mod+Shift+a exec ~/.config/scripts/aliases.sh
+bindsym $mod+Escape exec ~/.config/scripts/system-menu.sh
+bindsym $mod+Shift+t exec ~/.config/scripts/tools-menu.sh
 
 # ============================================================
 # Focus
@@ -133,16 +128,16 @@ bindsym $mod+a focus parent
 # Workspaces
 # ============================================================
 
-set $ws1 "1: Browser"
-set $ws2 "2: Code"
-set $ws3 "3: Terminals"
-set $ws4 "4"
-set $ws5 "5"
-set $ws6 "6: AI Chat"
-set $ws7 "7"
-set $ws8 "8: Mail"
-set $ws9 "9: Slack"
-set $ws10 "10: Spotify"
+set $ws1 "1: "
+set $ws2 "2: "
+set $ws3 "3: 󰍸"
+set $ws4 "4: 󰘦"
+set $ws5 "5: 󰭹"
+set $ws6 "6: 󰚩"
+set $ws7 "7: 󰒲"
+set $ws8 "8: "
+set $ws9 "9: "
+set $ws10 "10: "
 
 # ============================================================
 # Workspace switching
@@ -246,8 +241,9 @@ bindsym $mod+r mode "resize"
 # Borders
 # ============================================================
 
-default_border pixel 3
-default_floating_border pixel 3
+default_border pixel 2
+default_floating_border pixel 2
+hide_edge_borders smart
 
 # Focused window
 # Inspired by AeroSpace / JankyBorders
@@ -267,15 +263,19 @@ client.urgent #E52E2E #011423 #FFFFFF #E52E2E #E52E2E
 # ============================================================
 
 # Same as AeroSpace
-gaps inner 8
-gaps outer 5
+gaps inner 10
+gaps outer 8
 
 # ============================================================
 # i3bar / i3blocks
 # ============================================================
 
 bar {
+    position top
     status_command /usr/bin/i3blocks -c ~/.config/i3/i3blocks.conf
+    tray_output none
+    separator_symbol "│"
+    height 30
 
     set $bg-color #011423
     set $inactive-bg-color #0e2a3f

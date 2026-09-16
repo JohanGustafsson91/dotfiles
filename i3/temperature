@@ -1,0 +1,25 @@
+#!/bin/sh
+
+for zone in /sys/class/thermal/thermal_zone*/; do
+    [ -r "$zone/type" ] || continue
+    type=$(cat "$zone/type")
+    case "$type" in
+        x86_pkg_temp|Package\ id\ 0|TCPU|cpu-thermal)
+            if [ -r "$zone/temp" ]; then
+                temp=$(awk '{ printf "%.0f", $1 / 1000 }' "$zone/temp")
+                if [ "$temp" -ge 85 ]; then
+                    color='#E52E2E'
+                elif [ "$temp" -ge 70 ]; then
+                    color='#FFCC66'
+                else
+                    color='#CBE0F0'
+                fi
+                text=" $temp°C"
+                printf '%s\n%s\n%s\n' "$text" "$text" "$color"
+                exit 0
+            fi
+            ;;
+    esac
+done
+
+printf ' n/a\n n/a\n#5C7A91\n'

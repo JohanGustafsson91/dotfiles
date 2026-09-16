@@ -1,0 +1,24 @@
+[general]
+import = [
+    "~/.config/alacritty/themes/themes/coolnight.toml"
+]
+
+[window]
+padding.x = 18
+padding.y = 18
+decorations = "Buttonless"
+opacity = 1.0
+
+[font]
+normal = { family = "MesloLGL Nerd Font Propo" }
+size = 6
+
+[colors.normal]
+blue = "#275378"
+cyan = "#275378"
+white = "#CBE0F0"
+
+[colors.bright]
+blue = "#47FF9C"
+cyan = "#47FF9C"
+white = "#FFFFFF"
