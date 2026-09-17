@@ -88,10 +88,9 @@ SSH-nycklar installeras separat; aliaset `persist-ssh` förutsätter `~/.ssh/id_
 ## Saker att anpassa på nästa dator
 
 - `i3/config` använder input-ID `9` för naturlig scrollning. ID:t är maskinberoende.
-- `scripts/display-*-screens.sh` innehåller skärmutgångar och upplösningar för
-  nuvarande dator.
-- `i3/i3blocks.conf` och `bash/.bashrc` innehåller sökvägar med `/home/johan`.
-  Projektväljaren förutsätter också projekt under `~/code` och en viss sökvägsstruktur.
+- `scripts/*monitor*.sh` använder anslutna skärmar dynamiskt. Profilerna för hem
+  och Office kräver rätt antal externa skärmar och visar en notis annars.
+- Projektväljaren förutsätter projekt under `~/code` och en viss sökvägsstruktur.
 - `scripts/lockscreen.sh` hänvisar till `~/.config/i3/lock.png`, som saknas i
   nuvarande konfiguration. Lägg till en bild eller anpassa skriptet innan denna
   genväg används. i3:s separata låsning före vila använder i3lock direkt.

@@ -12,9 +12,13 @@ percent=$(printf '%s\n' "$line" | sed -n 's/^Battery [^:]*: [^,]*, \([0-9][0-9]*
 if [ -z "$percent" ]; then
     text=' n/a'
     color='#5C7A91'
-elif [ "$status" = 'Discharging' ] && [ "$percent" -lt 20 ]; then
+elif [ "$percent" -lt 20 ]; then
     text=" $percent%"
-    color='#E52E2E'
+    if [ "$status" = 'Charging' ]; then
+        color='#FFCC66'
+    else
+        color='#E52E2E'
+    fi
 elif [ "$status" = 'Discharging' ] && [ "$percent" -lt 40 ]; then
     text=" $percent%"
     color='#FFCC66'

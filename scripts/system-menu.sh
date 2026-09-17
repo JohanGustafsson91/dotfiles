@@ -3,6 +3,8 @@
 choice=$(printf '%s\n' \
     '  Lock' \
     '󰤄  Suspend' \
+    '  Shutdown' \
+    '󰗼  Logout' \
     '󰑐  Reload i3' \
     '󰑓  Restart i3' \
     '  Audio settings' \
@@ -11,9 +13,15 @@ choice=$(printf '%s\n' \
     '  Cancel' |
     rofi -dmenu -i -p 'System')
 
+confirm() {
+    [ "$(printf 'No\nYes\n' | rofi -dmenu -i -p "$1")" = 'Yes' ]
+}
+
 case "$choice" in
     *Lock) ~/.config/scripts/lockscreen.sh ;;
-    *Suspend) systemctl suspend ;;
+    *Suspend) confirm 'Suspend?' && systemctl suspend ;;
+    *Shutdown) confirm 'Shutdown?' && systemctl poweroff ;;
+    *Logout) confirm 'Logout?' && i3-msg exit ;;
     *'Reload i3') i3-msg reload ;;
     *'Restart i3') i3-msg restart ;;
     *'Audio settings') pavucontrol >/dev/null 2>&1 & ;;

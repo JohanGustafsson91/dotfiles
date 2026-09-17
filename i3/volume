@@ -2,16 +2,19 @@
 
 case "${BLOCK_BUTTON:-}" in
     1) pavucontrol >/dev/null 2>&1 & ;;
-    3) pactl set-sink-mute @DEFAULT_SINK@ toggle ;;
-    4) pactl set-sink-volume @DEFAULT_SINK@ +5% ;;
-    5) pactl set-sink-volume @DEFAULT_SINK@ -5% ;;
+    3) pactl set-sink-mute @DEFAULT_SINK@ toggle >/dev/null 2>&1 ;;
+    4) pactl set-sink-volume @DEFAULT_SINK@ +5% >/dev/null 2>&1 ;;
+    5) pactl set-sink-volume @DEFAULT_SINK@ -5% >/dev/null 2>&1 ;;
 esac
 
-mute=$(pactl get-sink-mute @DEFAULT_SINK@ | awk '{print $2}')
-volume=$(pactl get-sink-volume @DEFAULT_SINK@ | grep -o '[0-9]\+%' | head -1)
+mute=$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | awk '{print $2}')
+volume=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | grep -o '[0-9]\+%' | head -1)
 
-if [ "$mute" = "yes" ]; then
-    echo "󰖁  muted"
+if [ -z "$mute" ] || [ -z "$volume" ]; then
+    printf '󰕾  n/a\n󰕾  n/a\n#5C7A91\n'
+elif [ "$mute" = "yes" ]; then
+    printf '󰖁  muted\n󰖁  muted\n#5C7A91\n'
 else
-    echo "󰕾  $volume"
+    text="󰕾  $volume"
+    printf '%s\n%s\n#9CDCFE\n' "$text" "$text"
 fi

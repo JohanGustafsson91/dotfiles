@@ -14,20 +14,29 @@ vpn=$(nmcli -t -f TYPE,STATE,NAME connection show --active | \
     awk -F: '$1=="vpn" && $2=="activated" {print "🔒 " $3; exit}')
 
 if [ -z "$connection" ]; then
-    echo "󰖪 offline"
+    printf '󰖪 offline\n󰖪 offline\n#5C7A91\n'
     exit
 fi
 
-if [ "$signal" -ge 80 ]; then
+if [ -z "$signal" ]; then
+    icon="󰤯"
+    color='#E52E2E'
+elif [ "$signal" -ge 80 ]; then
     icon="󰤨"
+    color='#47FF9C'
 elif [ "$signal" -ge 60 ]; then
     icon="󰤥"
+    color='#9CDCFE'
 elif [ "$signal" -ge 40 ]; then
     icon="󰤢"
+    color='#FFCC66'
 elif [ "$signal" -ge 20 ]; then
     icon="󰤟"
+    color='#FFCC66'
 else
     icon="󰤯"
+    color='#E52E2E'
 fi
 
-echo "$icon  $connection${vpn:+  $vpn}"
+text="$icon  $connection${vpn:+  $vpn}"
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"

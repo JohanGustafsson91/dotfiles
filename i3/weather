@@ -18,5 +18,5 @@ weather=$(curl -fsS --max-time 4 "https://wttr.in/${encoded_location}?format=%l+
 if [ -n "$weather" ]; then
     printf '%s\n' "$weather"
 else
-    printf 'WEATHER offline\n'
+    printf '%s offline\n' "$location"
 fi

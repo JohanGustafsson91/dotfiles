@@ -200,10 +200,17 @@ exec spotify
 # Programs on workspaces
 # ============================================================
 
-# Messenger
+# Applications on workspaces
+# PWA instance IDs are stable per Chrome profile, but change if an app is reinstalled.
+# Keep specific PWA rules before the generic Chrome rule.
 assign [instance="crx_bbdeiblfgdokhlblpgeaokenkfknecgl"] $ws3 
+# ChatGPT private PWA
+assign [instance="chatgpt.com"] $ws6
+# Microsoft Teams PWA
+assign [instance="crx_ompifgpmddkgmclendfeacglnodjjndh"] $ws9
+# Microsoft Outlook PWA
+assign [instance="crx_faolnafnngnfdaknnbpnkhgohbobgegn"] $ws8
 assign [class="Google-chrome"] $ws1
-assign [class="chatgpt.com"] $ws6
 assign [class="Slack"] $ws9
 assign [class="Spotify"] $ws10
 

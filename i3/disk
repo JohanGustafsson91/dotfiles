@@ -1,0 +1,19 @@
+#!/bin/sh
+
+usage=$(df -P -l "$HOME" 2>/dev/null | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
+
+if [ -z "$usage" ]; then
+    text=' n/a'
+    color='#5C7A91'
+elif [ "$usage" -ge 90 ]; then
+    text=" $usage%"
+    color='#E52E2E'
+elif [ "$usage" -ge 75 ]; then
+    text=" $usage%"
+    color='#FFCC66'
+else
+    text=" $usage%"
+    color='#CBE0F0'
+fi
+
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"
