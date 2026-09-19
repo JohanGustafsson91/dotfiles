@@ -183,6 +183,12 @@ bindsym Shift+F8 move container to workspace number $ws8
 bindsym Shift+F9 move container to workspace number $ws9
 bindsym Shift+F10 move container to workspace number $ws10
 
+# Move the whole workspace between outputs
+bindsym $mod+Ctrl+h move workspace to output left
+bindsym $mod+Ctrl+l move workspace to output right
+bindsym $mod+Ctrl+Left move workspace to output left
+bindsym $mod+Ctrl+Right move workspace to output right
+
 # ============================================================
 # Workspace navigation
 # ============================================================

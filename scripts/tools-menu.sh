@@ -3,6 +3,7 @@
 choice=$(printf '%s\n' \
     '󰉋  Project' \
     '󰂯  Bluetooth' \
+    '󰘳  Fix app workspaces' \
     '󰍹  Single monitor' \
     '󰍹  Home · three monitors' \
     '󰍹  Office · two monitors' \
@@ -15,6 +16,7 @@ choice=$(printf '%s\n' \
 case "$choice" in
     *Project) alacritty --title 'Project' -e ~/.config/scripts/fuzzy-select-project.sh >/dev/null 2>&1 & ;;
     *Bluetooth) blueman-manager >/dev/null 2>&1 & ;;
+    *'Fix app workspaces') ~/.config/scripts/fix-workspaces.sh ;;
     *'Single monitor') ~/.config/scripts/single-monitor.sh ;;
     *'Home · three monitors') ~/.config/scripts/home-three-monitors.sh ;;
     *'Office · two monitors') ~/.config/scripts/office-two-monitors.sh ;;

@@ -88,8 +88,11 @@ SSH-nycklar installeras separat; aliaset `persist-ssh` förutsätter `~/.ssh/id_
 ## Saker att anpassa på nästa dator
 
 - `i3/config` använder input-ID `9` för naturlig scrollning. ID:t är maskinberoende.
-- `scripts/*monitor*.sh` använder anslutna skärmar dynamiskt. Profilerna för hem
-  och Office kräver rätt antal externa skärmar och visar en notis annars.
+- Skärmprofilerna använder anslutna skärmar dynamiskt, förutom
+  `scripts/office-three-monitors.sh` som använder fasta anslutningsnamn
+  (`eDP-1`, `DP-3-8` och `DP-3-1-8`) och upplösningen 1920×1080.
+  Anpassa dessa efter hårdvaran. De dynamiska profilerna för hem och Office
+  kräver rätt antal externa skärmar och visar en notis annars.
 - Projektväljaren förutsätter projekt under `~/code` och en viss sökvägsstruktur.
 - `scripts/lockscreen.sh` hänvisar till `~/.config/i3/lock.png`, som saknas i
   nuvarande konfiguration. Lägg till en bild eller anpassa skriptet innan denna
