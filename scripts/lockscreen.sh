@@ -5,7 +5,8 @@ img=$(mktemp /tmp/XXXXXXXXXX.png)
 # Take a screenshot of current desktop
 import -window root $img 
 # Pixelate the screenshot
-convert $img -scale 10% -scale 1000% $img
+size=$(identify -format '%wx%h' "$img")
+convert "$img" -scale 15.3846% -scale "$size!" "$img"
 # Alternatively, blur the screenshot (slow!)
 #convert $img -blur 2,5 $img
 # Add the lock image
