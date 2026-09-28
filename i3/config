@@ -31,6 +31,12 @@ bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3blocks
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3blocks
 
+bindsym XF86AudioPlay exec --no-startup-id ~/.config/scripts/music.sh play-pause
+bindsym XF86AudioPause exec --no-startup-id ~/.config/scripts/music.sh play-pause
+bindsym XF86AudioNext exec --no-startup-id ~/.config/scripts/music.sh next
+bindsym XF86AudioPrev exec --no-startup-id ~/.config/scripts/music.sh previous
+bindsym XF86AudioStop exec --no-startup-id ~/.config/scripts/music.sh stop
+
 # ============================================================
 # Mouse + Mod to drag floating windows
 # ============================================================
@@ -61,7 +67,6 @@ bindsym $mod+d exec rofi -show drun
 bindsym Mod1+space exec rofi -show drun
 bindsym $mod+Shift+f exec rofi -show window
 bindsym $mod+Escape exec ~/.config/scripts/system-menu.sh
-bindsym $mod+Shift+t exec ~/.config/scripts/tools-menu.sh
 
 # ============================================================
 # Focus
@@ -200,7 +205,7 @@ bindsym $mod+Tab workspace back_and_forth
 # Autostart
 # ============================================================
 
-exec spotify
+# exec spotify
 
 # ============================================================
 # Programs on workspaces
