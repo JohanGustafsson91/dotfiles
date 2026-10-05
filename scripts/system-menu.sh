@@ -18,7 +18,6 @@ choice=$(printf '%s\n' \
     '󰘳  Fix app workspaces' \
     '󰍹  Single monitor' \
     '󰍹  Home · three monitors' \
-    '󰍹  Office · two monitors' \
     '󰍺  Office · three monitors' \
     '󰍹  Auto-detect monitors' \
     '  Show clipboard' \
@@ -47,7 +46,6 @@ case "$choice" in
     *'Fix app workspaces') ~/.config/scripts/fix-workspaces.sh ;;
     *'Single monitor') ~/.config/scripts/single-monitor.sh ;;
     *'Home · three monitors') ~/.config/scripts/home-three-monitors.sh ;;
-    *'Office · two monitors') ~/.config/scripts/office-two-monitors.sh ;;
     *'Office · three monitors') ~/.config/scripts/office-three-monitors.sh ;;
     *'Auto-detect monitors') ~/.config/scripts/auto-monitors.sh ;;
     *'Show clipboard')

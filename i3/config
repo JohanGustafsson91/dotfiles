@@ -19,6 +19,7 @@ exec --no-startup-id dex --autostart --environment i3
 # ============================================================
 
 exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
+exec --no-startup-id /usr/bin/python3 ~/.config/scripts/lid-suspend-delay.py
 
 # ============================================================
 # Audio
@@ -190,8 +191,12 @@ bindsym Shift+F10 move container to workspace number $ws10
 
 # Move the whole workspace between outputs
 bindsym $mod+Ctrl+h move workspace to output left
+bindsym $mod+Ctrl+j move workspace to output down
+bindsym $mod+Ctrl+k move workspace to output up
 bindsym $mod+Ctrl+l move workspace to output right
 bindsym $mod+Ctrl+Left move workspace to output left
+bindsym $mod+Ctrl+Down move workspace to output down
+bindsym $mod+Ctrl+Up move workspace to output up
 bindsym $mod+Ctrl+Right move workspace to output right
 
 # ============================================================
@@ -347,6 +352,9 @@ exec_always setxkbmap -option caps:ctrl_modifier
 # ============================================================
 
 exec_always xinput set-prop 9 "libinput Natural Scrolling Enabled" 1
+
+# External mouse
+exec_always xinput set-prop "PixArt USB Optical Mouse" "libinput Natural Scrolling Enabled" 1
 
 # ============================================================
 # Screen brightness

@@ -1,12 +1,19 @@
 #!/bin/bash
 
-# Get the current directory name and sanitize it
-SESSION_NAME=$(basename "$PWD" | tr '.' '_')
+SESSION_NAME=$(basename "$PWD")
+
+if [[ "${1:-}" == "--name-session" ]]; then
+    read -r -p "Tmux session name [$SESSION_NAME]: " session_name || exit 1
+    SESSION_NAME=${session_name:-$SESSION_NAME}
+fi
+
+# Dots and colons are reserved in tmux target names.
+SESSION_NAME=$(printf '%s' "$SESSION_NAME" | tr '.:' '__')
 
 echo "Sanitized session name: $SESSION_NAME"
 
 # Check if the session already exists
-tmux has-session -t "$SESSION_NAME" 2>/dev/null
+tmux has-session -t "=$SESSION_NAME" 2>/dev/null
 if [ $? != 0 ]; then
     echo "Creating new session: $SESSION_NAME"
     echo "PWD $PWD"

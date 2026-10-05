@@ -10,4 +10,4 @@ fi
 cd ~/"$selected_dir" || exit
 
 echo "Run script from: $selected_dir"
-bash ~/.config/scripts/code-in-tmux.sh
+bash ~/.config/scripts/code-in-tmux.sh "$@"

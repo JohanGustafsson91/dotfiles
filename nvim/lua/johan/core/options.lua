@@ -15,7 +15,7 @@ opt.expandtab = true -- Convert tabs to spaces
 opt.autoindent = true -- Copy indent from current line when starting a new one
 
 -- Line wrapping
-opt.wrap = false -- Disable line wrapping (long lines won't wrap)
+opt.wrap = true -- Enable line wrapping
 
 -- Search settings
 opt.ignorecase = true -- Ignore case when searching

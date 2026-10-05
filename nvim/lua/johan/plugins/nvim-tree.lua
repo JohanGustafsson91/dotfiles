@@ -12,6 +12,18 @@ return {
 		local nvimtree = require("nvim-tree")
 
 		nvimtree.setup({
+			on_attach = function(bufnr)
+				local api = require("nvim-tree.api")
+
+				api.map.on_attach.default(bufnr)
+				vim.keymap.set("n", "gx", api.node.run.system, {
+					buffer = bufnr,
+					desc = "Open with default application",
+					noremap = true,
+					silent = true,
+					nowait = true,
+				})
+			end,
 			hijack_directories = {
 				enable = true,
 				auto_open = true,

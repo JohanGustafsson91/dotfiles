@@ -64,6 +64,7 @@ installerade paket. En installation på en blank dator är ännu inte verifierad
   brightnessctl, xset, setxkbmap, xinput och xrandr.
 - Shell och utveckling: Bash, bash-completion, Git, tmux, fzf, ripgrep,
   Neovim, lazygit, Starship, NVM/Node.js, pnpm och Go.
+- Fördröjd vila vid stängt lock: `python3-dbus` och `python3-gi`.
 - Neovim/plugins: C-kompilator och make, Python med stöd för virtuella miljöer,
   unzip, curl, ett X11-urklippsverktyg som xclip samt xmllint.
 - Låsskärmsskriptet använder ImageMagicks `import` och `convert`.
@@ -86,6 +87,11 @@ tokenvärden till repot. `.gitignore` utesluter även filer med namnet `.bash_se
 SSH-nycklar installeras separat; aliaset `persist-ssh` förutsätter `~/.ssh/id_ed25519`.
 
 ## Saker att anpassa på nästa dator
+
+- i3 startar `scripts/lid-suspend-delay.py`: stängt lock ger vila efter fem
+  minuter. Öppnat lock eller dockning avbryter nedräkningen. Befintlig låsning
+  före vila och separat inaktivitetslåsning gäller fortfarande. Om scriptet
+  avslutas återtar systemd sin vanliga hantering av locket.
 
 - `i3/config` använder input-ID `9` för naturlig scrollning. ID:t är maskinberoende.
 - Skärmprofilerna använder anslutna skärmar dynamiskt, förutom

@@ -4,6 +4,7 @@ alias vim='nvim'
 alias ll="ls -all"
 alias persist-ssh='eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519'
 alias fp='bash ~/.config/scripts/fuzzy-select-project.sh'
+alias fpn='bash ~/.config/scripts/fuzzy-select-named-project.sh'
 alias tks='bash ~/.config/scripts/kill-tmux-session.sh'
 alias cc="node ~/.config/scripts/conventional-commits/index.mjs"
 alias screen-2='bash ~/.config/scripts/display-two-screens.sh'
@@ -35,3 +36,4 @@ jira-my-sprint() {
 
     jira issue list --jql "$query" --columns key,summary,status --no-truncate
 }
+alias gsta='git status --short --ignored --untracked-files=all'
