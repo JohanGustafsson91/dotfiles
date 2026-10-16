@@ -6,6 +6,7 @@
 
 # Generated files
 node_modules/
+__pycache__/
 *.log
 *.swp
 *.swo
@@ -19,3 +20,7 @@ node_modules/
 .gnupg/
 *.key
 *.pem
+
+# Local snapshots of the active i3 config
+/i3/config.before-*
+/i3/config.*.bak

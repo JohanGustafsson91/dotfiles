@@ -3,6 +3,7 @@ configuration {
   display-window: "Windows:";
   show-icons: true;
   drun-display-format: "{icon} {name}";
+  drun-match-fields: "name,generic,categories,keywords";
   font: "MesloLGS Nerd Font Mono 10";
   modi: "window,run,drun";
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Wait five minutes before suspending an undocked laptop with a closed lid."""
+"""Wait fifteen minutes before suspending an undocked laptop with a closed lid."""
 
 import fcntl
 import os
@@ -9,7 +9,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
 
-DELAY_SECONDS = 300
+DELAY_SECONDS = 900
 MANAGER = "org.freedesktop.login1.Manager"
 
 
@@ -31,7 +31,7 @@ def watch_lid():
         nonlocal timer
         timer = None
         if should_suspend():
-            print("Lid closed for five minutes; suspending.", flush=True)
+            print("Lid closed for fifteen minutes; suspending.", flush=True)
             try:
                 manager.Suspend(False)
             except dbus.DBusException as error:
@@ -44,7 +44,7 @@ def watch_lid():
         if should_suspend():
             if timer is None:
                 timer = GLib.timeout_add_seconds(DELAY_SECONDS, suspend)
-                print("Lid closed; starting five-minute suspend timer.", flush=True)
+                print("Lid closed; starting fifteen-minute suspend timer.", flush=True)
         elif timer is not None:
             GLib.source_remove(timer)
             timer = None
@@ -69,13 +69,13 @@ def watch_lid():
     # Holding this descriptor replaces logind's immediate lid action. Closing
     # it (including on process exit) restores the normal system behaviour.
     inhibitor = manager.Inhibit(
-        "handle-lid-switch", "lid-suspend-delay", "Wait five minutes after lid close", "block"
+        "handle-lid-switch", "lid-suspend-delay", "Wait fifteen minutes after lid close", "block"
     ).take()
     try:
         update_timer()
         # Docked does not reliably emit PropertiesChanged on logind.
         GLib.timeout_add_seconds(2, update_timer)
-        print("Lid delay active (300 seconds).", flush=True)
+        print("Lid delay active (900 seconds).", flush=True)
         loop.run()
     finally:
         os.close(inhibitor)

@@ -1,5 +1,6 @@
 alias git='LANG=en_GB git'
 alias gst='git status'
+alias gl='git log'
 alias vim='nvim'
 alias ll="ls -all"
 alias persist-ssh='eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519'

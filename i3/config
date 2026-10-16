@@ -67,7 +67,10 @@ bindsym $mod+Shift+q kill
 bindsym $mod+d exec rofi -show drun
 bindsym Mod1+space exec rofi -show drun
 bindsym $mod+Shift+f exec rofi -show window
+bindsym $mod+Ctrl+f exec --no-startup-id /usr/bin/python3 ~/.config/scripts/open-in-firefox.py --clipboard
+bindsym $mod+Ctrl+Shift+f exec --no-startup-id /usr/bin/python3 ~/.config/scripts/open-in-firefox.py --clipboard
 bindsym $mod+Escape exec ~/.config/scripts/system-menu.sh
+bindsym Ctrl+Escape exec ~/.config/scripts/system-menu.sh
 
 # ============================================================
 # Focus
@@ -174,6 +177,24 @@ bindsym $mod+F8 workspace number $ws8
 bindsym $mod+F9 workspace number $ws9
 bindsym $mod+F10 workspace number $ws10
 
+# Temporarily bring a workspace to the center screen, or restore it.
+bindsym $mod+c mode "Center workspace: F1-F10 / Escape"
+
+mode "Center workspace: F1-F10 / Escape" {
+    bindsym F1 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 1
+    bindsym F2 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 2
+    bindsym F3 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 3
+    bindsym F4 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 4
+    bindsym F5 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 5
+    bindsym F6 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 6
+    bindsym F7 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 7
+    bindsym F8 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 8
+    bindsym F9 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 9
+    bindsym F10 mode "default"; exec --no-startup-id /usr/bin/python3 ~/.config/scripts/center-workspace.py 10
+    bindsym Escape mode "default"
+    bindsym $mod+c mode "default"
+}
+
 # ============================================================
 # Move focused container to workspace
 # ============================================================
@@ -222,11 +243,8 @@ bindsym $mod+Tab workspace back_and_forth
 assign [instance="crx_bbdeiblfgdokhlblpgeaokenkfknecgl"] $ws3 
 # ChatGPT private PWA
 assign [instance="chatgpt.com"] $ws6
-# Microsoft Teams PWA
-assign [instance="crx_ompifgpmddkgmclendfeacglnodjjndh"] $ws9
-# Microsoft Outlook PWA
-assign [instance="crx_faolnafnngnfdaknnbpnkhgohbobgegn"] $ws8
 assign [class="Google-chrome"] $ws1
+assign [class="(?i)^firefox(-esr)?$"] $ws4
 assign [class="Slack"] $ws9
 assign [class="Spotify"] $ws10
 
@@ -342,7 +360,7 @@ bindsym $mod+shift+x exec ~/.config/scripts/lockscreen.sh
 # Keyboard
 # ============================================================
 
-exec_always xset r rate 200 50
+exec_always xset r rate 350 30
 
 # Caps Lock -> Ctrl
 exec_always setxkbmap -option caps:ctrl_modifier
@@ -355,6 +373,9 @@ exec_always xinput set-prop 9 "libinput Natural Scrolling Enabled" 1
 
 # External mouse
 exec_always xinput set-prop "PixArt USB Optical Mouse" "libinput Natural Scrolling Enabled" 1
+
+# Keep the external touchscreen mapped after hotplug and layout changes.
+exec_always --no-startup-id /usr/bin/python3 ~/.config/scripts/map-touchscreen.py
 
 # ============================================================
 # Screen brightness

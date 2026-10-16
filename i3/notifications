@@ -1,0 +1,25 @@
+#!/bin/sh
+
+show_error() {
+    printf '%s\n%s\n%s\n' '⚠' '⚠' '#FFCC66'
+    exit 0
+}
+
+if [ "${BLOCK_BUTTON:-}" = 1 ]; then
+    dunstctl set-paused toggle >/dev/null 2>&1 || show_error
+fi
+
+paused=$(dunstctl is-paused 2>/dev/null) || show_error
+case "$paused" in
+    true)
+        text='🔕'
+        color='#FFCC66'
+        ;;
+    false)
+        text='🔔'
+        color='#5C7A91'
+        ;;
+    *) show_error ;;
+esac
+
+printf '%s\n%s\n%s\n' "$text" "$text" "$color"

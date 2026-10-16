@@ -30,20 +30,6 @@ case "$profile" in
         fi
         monitors="$primary $first_external $second_external"
         ;;
-    office-two)
-        if [ "$external_count" -lt 1 ]; then
-            notify-send 'Displays' 'Office two-monitor layout requires an external monitor.'
-            exit 1
-        fi
-        monitors="$primary $first_external"
-        ;;
-    office-three)
-        if [ "$external_count" -lt 2 ]; then
-            notify-send 'Displays' 'Office three-monitor layout requires two external monitors.'
-            exit 1
-        fi
-        monitors="$primary $first_external $second_external"
-        ;;
     auto)
         monitors=$connected
         ;;
