@@ -211,14 +211,14 @@ bindsym Shift+F9 move container to workspace number $ws9
 bindsym Shift+F10 move container to workspace number $ws10
 
 # Move the whole workspace between outputs
-bindsym $mod+Ctrl+h move workspace to output left
-bindsym $mod+Ctrl+j move workspace to output down
-bindsym $mod+Ctrl+k move workspace to output up
-bindsym $mod+Ctrl+l move workspace to output right
-bindsym $mod+Ctrl+Left move workspace to output left
-bindsym $mod+Ctrl+Down move workspace to output down
-bindsym $mod+Ctrl+Up move workspace to output up
-bindsym $mod+Ctrl+Right move workspace to output right
+bindsym $mod+Ctrl+h exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py left
+bindsym $mod+Ctrl+j exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py down
+bindsym $mod+Ctrl+k exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py up
+bindsym $mod+Ctrl+l exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py right
+bindsym $mod+Ctrl+Left exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py left
+bindsym $mod+Ctrl+Down exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py down
+bindsym $mod+Ctrl+Up exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py up
+bindsym $mod+Ctrl+Right exec --no-startup-id /usr/bin/python3 ~/.config/scripts/move-workspace.py right
 
 # ============================================================
 # Workspace navigation
@@ -243,6 +243,9 @@ bindsym $mod+Tab workspace back_and_forth
 assign [instance="crx_bbdeiblfgdokhlblpgeaokenkfknecgl"] $ws3 
 # ChatGPT private PWA
 assign [instance="chatgpt.com"] $ws6
+# Outlook and Microsoft Teams PWAs
+assign [instance="crx_faolnafnngnfdaknnbpnkhgohbobgegn"] $ws8
+assign [instance="crx_ompifgpmddkgmclendfeacglnodjjndh"] $ws9
 assign [class="Google-chrome"] $ws1
 assign [class="(?i)^firefox(-esr)?$"] $ws4
 assign [class="Slack"] $ws9

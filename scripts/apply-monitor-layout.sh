@@ -11,7 +11,7 @@ has_output() {
 }
 
 first_external=$(printf '%s\n' "$connected" | awk '$1 != "eDP-1" && NF { print; exit }')
-second_external=$(printf '%s\n' "$connected" | awk '$1 != "eDP-1" && NF { count++; if (count == 2) print; exit }')
+second_external=$(printf '%s\n' "$connected" | awk '$1 != "eDP-1" && NF { count++; if (count == 2) { print; exit } }')
 external_count=$(printf '%s\n' "$connected" | awk '$1 != "eDP-1" && NF { count++ } END { print count + 0 }')
 
 primary=eDP-1
@@ -26,6 +26,20 @@ case "$profile" in
     home-three)
         if [ "$external_count" -lt 2 ]; then
             notify-send 'Displays' 'Home layout requires two external monitors.'
+            exit 1
+        fi
+        monitors="$primary $first_external $second_external"
+        ;;
+    office-two)
+        if [ "$external_count" -lt 1 ]; then
+            notify-send 'Displays' 'Office two-monitor layout requires an external monitor.'
+            exit 1
+        fi
+        monitors="$primary $first_external"
+        ;;
+    office-three)
+        if [ "$external_count" -lt 2 ]; then
+            notify-send 'Displays' 'Office three-monitor layout requires two external monitors.'
             exit 1
         fi
         monitors="$primary $first_external $second_external"

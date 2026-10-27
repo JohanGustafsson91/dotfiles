@@ -11,6 +11,8 @@ move_to_workspace 'class="Google-chrome"' 1
 move_to_workspace 'class="(?i)^firefox(-esr)?$"' 4
 move_to_workspace 'instance="crx_bbdeiblfgdokhlblpgeaokenkfknecgl"' 3
 move_to_workspace 'instance="chatgpt.com"' 6
+move_to_workspace 'instance="crx_faolnafnngnfdaknnbpnkhgohbobgegn"' 8
+move_to_workspace 'instance="crx_ompifgpmddkgmclendfeacglnodjjndh"' 9
 move_to_workspace 'class="Slack"' 9
 move_to_workspace 'class="Spotify"' 10
 

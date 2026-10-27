@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Västtrafik
+Comment=Planera resor och bevaka avgångar
+Exec=/home/johan/.config/i3/vasttrafik --menu
+Icon=applications-internet
+Terminal=false
+Categories=Utility;
+Keywords=Vasttrafik;Resor;Avgångar;

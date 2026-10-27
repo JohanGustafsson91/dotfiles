@@ -9,6 +9,7 @@ choice=$(printf '%s\n' \
     '󰑓  Restart i3' \
     '  Audio settings' \
     '♪  Music' \
+    '🚋  Västtrafik – resor' \
     '☀  Väder Trollhättan (klart.se)' \
     '☀  Väder Göteborg (klart.se)' \
     '󰤨  Network (nmtui)' \
@@ -18,6 +19,7 @@ choice=$(printf '%s\n' \
     '󰘳  Fix app workspaces' \
     '󰍹  Single monitor' \
     '󰍹  Home · three monitors' \
+    '󰍺  Office monitors' \
     '󰍹  Auto-detect monitors' \
     '  Show clipboard' \
     '  Cancel' |
@@ -36,6 +38,7 @@ case "$choice" in
     *'Restart i3') i3-msg restart ;;
     *'Audio settings') pavucontrol >/dev/null 2>&1 & ;;
     *Music) ~/.config/scripts/music.sh ;;
+    *'Västtrafik – resor') ~/.config/i3/vasttrafik --menu ;;
     *'Väder Trollhättan (klart.se)') xdg-open "https://www.klart.se/se/v%C3%A4stra-g%C3%B6talands-l%C3%A4n/v%C3%A4der-trollh%C3%A4ttan/j%C3%A4mf%C3%B6r/#$(TZ=Europe/Stockholm date +%F)" >/dev/null 2>&1 & ;;
     *'Väder Göteborg (klart.se)') xdg-open "https://www.klart.se/se/v%C3%A4stra-g%C3%B6talands-l%C3%A4n/v%C3%A4der-g%C3%B6teborg/j%C3%A4mf%C3%B6r/#$(TZ=Europe/Stockholm date +%F)" >/dev/null 2>&1 & ;;
     *'Network (nmtui)') alacritty --config-file ~/.config/alacritty/nmtui.toml --title 'Network' -e nmtui >/dev/null 2>&1 & ;;
@@ -45,6 +48,7 @@ case "$choice" in
     *'Fix app workspaces') ~/.config/scripts/fix-workspaces.sh ;;
     *'Single monitor') ~/.config/scripts/single-monitor.sh ;;
     *'Home · three monitors') ~/.config/scripts/home-three-monitors.sh ;;
+    *'Office monitors') ~/.config/scripts/office-monitors.sh ;;
     *'Auto-detect monitors') ~/.config/scripts/auto-monitors.sh ;;
     *'Show clipboard')
         clipboard=$(xclip -selection clipboard -o 2>/dev/null | head -c 500)

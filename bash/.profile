@@ -25,3 +25,6 @@ fi
 if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
+
+# Enable native Firefox touch input on X11.
+export MOZ_USE_XINPUT2=1

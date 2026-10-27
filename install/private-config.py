@@ -19,7 +19,11 @@ HOME_FILES = {
     "tmux/.tmux.conf": ".tmux.conf",
 }
 EXCLUDED_FILES = {
+    "i3/vasttrafik",
+    "i3/vasttrafik.desktop",
+    "scripts/office-monitors.sh",
     "scripts/home-three-monitors.sh",
+    "scripts/office-three-monitors.sh",
     "scripts/map-touchscreen.py",
 }
 
@@ -41,12 +45,13 @@ def private_content(relative_path, content):
             ))
         ) + "\n"
     elif relative_path == "i3/i3blocks.conf":
+        content = re.sub(r"\[vasttrafik\]\n.*?(?=\[|\Z)", "", content, flags=re.S)
         content = content.replace("command=stand-up-timer", "command=$HOME/.config/i3/hydration-reminder")
     elif relative_path in ("scripts/system-menu.sh", "scripts/fix-workspaces.sh"):
         content = "\n".join(
             line for line in content.splitlines()
             if not any(marker in line for marker in (
-                "Home · three monitors", "crx_", 'class="Slack"',
+                "Home · three monitors", "Office", "Västtrafik", "crx_", 'class="Slack"',
                 "chatgpt.com",
             ))
         ) + "\n"

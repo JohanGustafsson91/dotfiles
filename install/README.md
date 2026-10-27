@@ -62,9 +62,9 @@ so the personal computer can be customized without changing the originals.
 The older `.config/` directory in the repository is not used; the directories
 listed in the main README table are the source.
 
-The private copy excludes Jira functions, Slack rules, fixed
-monitor layouts for home, touchscreen mapping and fixed mouse
-IDs. The project picker works
+The private copy excludes Jira functions, Slack/Teams/Outlook rules, fixed
+monitor layouts for home and office, touchscreen mapping and fixed mouse
+IDs and the Västtrafik commuting feature. The project picker works
 with your own projects under `~/code`.
 
 Flameshot's save location is reset to its application default. The lock screen

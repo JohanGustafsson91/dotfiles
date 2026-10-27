@@ -1,0 +1,1487 @@
+#!/usr/bin/env python3
+"""i3blocks journey planner using Västtrafik Planera Resa v4."""
+
+import argparse
+from collections import Counter
+import copy
+import base64
+import fcntl
+import getpass
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import RLock, Timer
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
+from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
+
+
+API = "https://ext-api.vasttrafik.se/pr/v4"
+TOKEN_URL = "https://ext-api.vasttrafik.se/token"
+ZONE = ZoneInfo("Europe/Stockholm")
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "vasttrafik/config.json"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "i3blocks/vasttrafik"
+USAGE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "vasttrafik/usage.jsonl"
+STOPS = {"origin": "Kaptensgatan", "C": "Göteborg Central", "G": "Gamlestaden Station",
+         "destination": "Trollhättan resecentrum"}
+COLORS = {"normal": "#CBE0F0", "idle": "#5C7A91", "warning": "#FFCC66"}
+
+
+def track_usage(event):
+    if os.environ.get("VASTTRAFIK_TRACKING") == "0":
+        return
+    try:
+        USAGE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        record = {"time": datetime.now(ZONE).isoformat(timespec="seconds"), "event": event}
+        with os.fdopen(os.open(USAGE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a") as file:
+            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        # Tracking must never prevent journey planning, including on a full disk.
+        pass
+
+
+def show_usage():
+    events, days, hours = Counter(), Counter(), Counter()
+    skipped = 0
+    try:
+        with USAGE.open() as file:
+            for line in file:
+                try:
+                    record = json.loads(line)
+                    stamp = datetime.fromisoformat(record["time"]).astimezone(ZONE)
+                    event = record["event"]
+                    if not isinstance(event, str):
+                        raise ValueError("Invalid event")
+                except (ValueError, KeyError, TypeError):
+                    skipped += 1
+                    continue
+                events[event] += 1
+                days[str(stamp.date())] += 1
+                hours[f"{stamp:%H}:00–{stamp:%H}:59"] += 1
+    except FileNotFoundError:
+        print("Ingen användning loggad ännu.")
+        return
+    print(f"Lokal användningslogg: {USAGE}\nAntal händelser: {sum(events.values())}")
+    for title, counts in (("Funktioner", events), ("Dagar", days), ("Klockslag", hours)):
+        print(f"\n{title}:")
+        for label, count in sorted(counts.items()):
+            print(f"  {label}: {count}")
+    if skipped:
+        print(f"\nÖverhoppade skadade loggrader: {skipped}")
+
+
+def load_json(path):
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def save_json(path, data):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(data, ensure_ascii=False))
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def route_name(config, endpoint):
+    return config.get(endpoint, STOPS[endpoint])
+
+
+def route_filters(config):
+    endpoints = {route_name(config, key).split(",")[0].casefold() for key in ("origin", "destination")}
+    commute = endpoints == {STOPS["origin"].casefold(), STOPS["destination"].casefold()}
+    return ["C", "G"] if commute else ["all"]
+
+
+def departure_target(config):
+    name = route_name(config, "origin").split(",")[0].casefold()
+    default = {"label": route_name(config, "origin"), "minutes": 0}
+    if name == STOPS["destination"].casefold():
+        default = {"label": "hemmet", "minutes": 10}
+    target = config.get("departure_targets", {}).get(name, default)
+    return target["label"], int(target["minutes"])
+
+
+def change_departure_target(config):
+    label, minutes = departure_target(config)
+    value = rofi(f"Minuter till {route_name(config, 'origin')} inklusive marginal (nu {minutes})")
+    if value is None:
+        return None
+    if not value.isdigit() or not 0 <= int(value) <= 180:
+        rofi("Ange hela minuter mellan 0 och 180", ["Tillbaka"])
+        return None
+    label = rofi("Varifrån går du? Exempelvis kontoret eller hemmet", [label])
+    if not label:
+        return None
+    name = route_name(config, "origin").split(",")[0].casefold()
+    targets = {**config.get("departure_targets", {}), name: {"label": label, "minutes": int(value)}}
+    updated = {**config, "departure_targets": targets}
+    save_route(updated)
+    return updated
+
+
+def everyday_route(config, homeward):
+    updated = dict(config)
+    updated.pop("origin_gid", None)
+    updated.pop("destination_gid", None)
+    updated.update(origin=STOPS["origin"] if homeward else STOPS["destination"],
+                   destination=STOPS["destination"] if homeward else STOPS["origin"])
+    return updated
+
+
+def arrival_target(config):
+    name = route_name(config, "destination").split(",")[0].casefold()
+    default = {"label": route_name(config, "destination"), "minutes": 0}
+    if name == STOPS["destination"].casefold():
+        default = {"label": "hemma", "minutes": 10}
+    target = config.get("arrival_targets", {}).get(name, default)
+    return target["label"], int(target["minutes"])
+
+
+def change_arrival_target(config):
+    label, minutes = arrival_target(config)
+    value = rofi(f"Minuter från {route_name(config, 'destination')} till målet (nu {minutes})")
+    if value is None:
+        return None
+    if not value.isdigit() or not 0 <= int(value) <= 180:
+        rofi("Ange hela minuter mellan 0 och 180", ["Tillbaka"])
+        return None
+    label = rofi("Namn på målet, exempelvis hemma eller kontoret", [label])
+    if not label:
+        return None
+    name = route_name(config, "destination").split(",")[0].casefold()
+    targets = {**config.get("arrival_targets", {}), name: {"label": label, "minutes": int(value)}}
+    updated = {**config, "arrival_targets": targets}
+    save_route(updated)
+    return updated
+
+
+def save_route(config, persist_endpoints=False):
+    path = CONFIG.with_name("route.json")
+    settings = load_json(path)
+    for key in ("arrival_targets", "departure_targets"):
+        if key in config:
+            settings[key] = config[key]
+    if persist_endpoints:
+        for key in ("origin", "destination", "origin_gid", "destination_gid"):
+            settings.pop(key, None)
+            if key in config:
+                settings[key] = config[key]
+    save_json(path, settings)
+
+
+def parse_time(value):
+    return datetime.fromisoformat(value).astimezone(ZONE)
+
+
+def best_time(call):
+    value = call.get("estimatedTime") or call.get("estimatedOtherwisePlannedTime") or call["plannedTime"]
+    return parse_time(value)
+
+
+def arrival_deadline(value, now):
+    if re.fullmatch(r"(?:[01]?\d|2[0-3])", value):
+        value = f"{int(value):02d}:00"
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+        raise ValueError("Ange ankomsttid som HH:MM")
+    hour, minute = map(int, value.split(":"))
+    deadline = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if deadline <= now:
+        raise ValueError("Ankomsttiden måste vara senare idag")
+    return deadline
+
+
+def call_time_text(call):
+    planned = parse_time(call["plannedTime"])
+    estimated = call.get("estimatedTime")
+    if estimated:
+        actual = parse_time(estimated)
+        delay = int((actual - planned).total_seconds() / 60)
+        return f"beräknad {actual:%H:%M} ({delay:+} min; tidtabell {planned:%H:%M})"
+    return f"tidtabell {planned:%H:%M} (prognos saknas)"
+
+
+def departure_place(leg):
+    call = leg["origin"]
+    point = call.get("realtimeStopPoint") or call["stopPoint"]
+    if call.get("realtimeStopPoint"):
+        platform = call.get("estimatedPlatform") or point.get("platform")
+    else:
+        platform = call.get("estimatedPlatform") or call.get("plannedPlatform") or point.get("platform")
+    mode = ((leg.get("serviceJourney") or {}).get("line") or {}).get("transportMode")
+    kind = "spår" if mode == "train" else "läge"
+    location = f"{kind} {platform}" if platform else f"{kind} ej angivet"
+    return f"{point['name'].split(',')[0]}, {location}"
+
+
+
+def journey_transfers(journey):
+    legs = journey.get("tripLegs") or []
+    margins = []
+    transfer_details = []
+    for index in range(1, len(legs)):
+        previous, following = legs[index - 1:index + 1]
+        previous_index = previous.get("journeyLegIndex", index - 1)
+        following_index = following.get("journeyLegIndex", index)
+        walks = [link for link in journey.get("connectionLinks") or []
+                 if previous_index < link.get("journeyLegIndex", -1) < following_index]
+        walking = sum((link["estimatedDurationInMinutes"] if link.get("estimatedDurationInMinutes") is not None
+                       else link.get("plannedDurationInMinutes") or 0)
+                      for link in walks)
+        transfer = (best_time(following["origin"]) - best_time(previous["destination"])).total_seconds() / 60
+        margins.append(math.floor(transfer - walking))
+        transfer_details.append(
+            f"Byte {index}: {int(transfer)} min totalt, varav {walking} min gång;"
+            f" {margins[-1]} min kvar efter gång"
+        )
+    return margins, transfer_details
+
+
+def journey_problem(journey):
+    legs = journey.get("tripLegs") or []
+    if any(leg.get("isCancelled") or leg.get("isPartCancelled") for leg in legs):
+        return "Resan är inställd eller delvis inställd – välj en annan resa."
+    margins, _ = journey_transfers(journey)
+    if any(margin < 0 for margin in margins):
+        return "Anslutningen fungerar inte – sök alternativ."
+    return None
+
+
+def journey_arrival(journey):
+    arrival = best_time(journey["tripLegs"][-1]["destination"])
+    access = journey.get("arrivalAccessLink") or {}
+    duration = access.get("estimatedDurationInMinutes")
+    if duration is None:
+        duration = access.get("plannedDurationInMinutes") or 0
+    arrival += timedelta(minutes=duration)
+    access_time = access.get("estimatedArrivalTime") or access.get("plannedArrivalTime")
+    return max(arrival, parse_time(access_time)) if access_time else arrival
+
+
+def watched_times(journey, config):
+    rows = []
+    legs = journey.get("tripLegs") or []
+    for leg in legs:
+        line = (leg.get("serviceJourney") or {}).get("line") or {}
+        name = line.get("shortName") or line.get("designation") or "?"
+        origin = departure_place(leg)
+        destination = leg["destination"]["stopPoint"]["name"]
+        cancelled = leg.get("isCancelled") or leg.get("isPartCancelled")
+        if cancelled:
+            rows.append(f"{name} från {origin}: inställd/delvis inställd – tidtabell {parse_time(leg['origin']['plannedTime']):%H:%M}")
+            continue
+        rows += [f"{name} från {origin}: {call_time_text(leg['origin'])}",
+                 f"{name} till {destination}: {call_time_text(leg['destination'])}"]
+    problem = journey_problem(journey)
+    if problem:
+        rows.append(problem)
+    elif legs:
+        target, minutes = arrival_target(config)
+        arrival = journey_arrival(journey) + timedelta(minutes=minutes)
+        basis = "senaste prognos" if legs[-1]["destination"].get("estimatedTime") else "tidtabell, prognos saknas"
+        rows.append(f"{target}: cirka {arrival:%H:%M} ({basis} + {minutes} min från hållplatsen)")
+    return rows
+
+
+def traffic_alerts(results, now, via=None):
+    alerts = []
+    for journey in results:
+        if journey.get("isDeparted"):
+            continue
+        legs = journey.get("tripLegs") or []
+        stations = {leg[call]["stopPoint"].get("stopArea", {}).get("name", "")
+                    for leg in legs for call in ("origin", "destination")}
+        route = journey.get("_alert_via") or next((key for key in ("C", "G") if STOPS[key] in stations), "all")
+        if via in ("C", "G") and route != via:
+            continue
+        for leg in legs:
+            endpoint = "destination" if journey.get("_watch") else "origin"
+            if best_time(leg[endpoint]) <= now:
+                continue
+            line = (leg.get("serviceJourney") or {}).get("line") or {}
+            name = line.get("shortName") or line.get("designation") or "?"
+            origin = departure_place(leg)
+            planned = parse_time(leg["origin"]["plannedTime"])
+            cancelled = leg.get("isCancelled") or leg.get("isPartCancelled")
+            delay = max(int((best_time(leg[call]) - parse_time(leg[call]["plannedTime"])).total_seconds() / 60)
+                        for call in ("origin", "destination"))
+            if not cancelled and delay < 1:
+                continue
+            status = "Delvis inställd" if leg.get("isPartCancelled") else "Inställd"
+            if not cancelled:
+                status = (f"Försenad (upp till +{delay} min) – avgång {call_time_text(leg['origin'])}; "
+                          f"ankomst {call_time_text(leg['destination'])}")
+            text = f"{status}: {name} från {origin}, avgång enligt tidtabell {planned:%H:%M}"
+            if text not in alerts:
+                alerts.append(text)
+    return alerts
+
+
+def journey_options(results, now, deadline=None, via=None, include_later=False):
+    options = []
+    for journey in results:
+        legs = journey.get("tripLegs") or []
+        unavailable = journey.get("_alert_only") or journey.get("isDeparted") or any(
+            leg.get("isCancelled") or leg.get("isPartCancelled") for leg in legs
+        )
+        if not legs or unavailable:
+            continue
+        lines = [(leg.get("serviceJourney") or {}).get("line") or {} for leg in legs]
+        modes = [line.get("transportMode", "").lower() for line in lines]
+        trains = [leg for leg, mode in zip(legs, modes) if mode == "train"]
+        stations = {leg[call]["stopPoint"].get("stopArea", {}).get("name", "")
+                    for leg in trains for call in ("origin", "destination")}
+        route = next((key for key in ("C", "G") if STOPS[key] in stations), "all")
+        commute_connection = len(trains) == 1 and "tram" in modes and all(
+            mode in ("tram", "train") for mode in modes
+        )
+        restricted = via in ("C", "G")
+        if restricted and (not commute_connection or route != via):
+            continue
+        departure = best_time(legs[0]["origin"])
+        arrival = best_time(legs[-1]["destination"])
+        for key, field in (("departureAccessLink", "Departure"), ("arrivalAccessLink", "Arrival")):
+            access = journey.get(key) or {}
+            value = access.get(f"estimated{field}Time") or access.get(f"planned{field}Time")
+            if value and field == "Departure":
+                departure = parse_time(value)
+            elif value:
+                arrival = parse_time(value)
+        misses_time = departure <= now or (deadline is not None and arrival > deadline and not include_later)
+        if misses_time:
+            continue
+
+        margins, transfer_details = journey_transfers(journey)
+        margin = min(margins) if margins else None
+        if margin is not None and margin < 0:
+            continue
+
+        names = [line.get("shortName") or line.get("designation") or "?" for line in lines]
+        realtime = all(leg[call].get("estimatedTime") for leg in legs for call in ("origin", "destination"))
+        marker = "" if realtime else "~"
+        delays = []
+        details = []
+        for leg, name in zip(legs, names):
+            origin = leg["origin"].get("realtimeStopPoint") or leg["origin"]["stopPoint"]
+            destination = leg["destination"].get("realtimeStopPoint") or leg["destination"]["stopPoint"]
+            direction = (leg.get("serviceJourney") or {}).get("direction") or ""
+            details.append(
+                f"{name} mot {direction}: från {departure_place(leg)}, {call_time_text(leg['origin'])}"
+                f" → {destination['name']}, {call_time_text(leg['destination'])}"
+            )
+            delay = int((best_time(leg["destination"]) - parse_time(leg["destination"]["plannedTime"])).total_seconds() / 60)
+            departure_delay = int((best_time(leg["origin"]) - parse_time(leg["origin"]["plannedTime"])).total_seconds() / 60)
+            if max(delay, departure_delay) > 0:
+                delays.append(f"{name}: avgång {departure_delay:+} min, ankomst {delay:+} min")
+        details.extend(transfer_details)
+        details.extend(delays)
+        warning = bool(delays)
+        segments = [f"{name} {best_time(leg['origin']):%H:%M} från {departure_place(leg)}"
+                    for leg, name in zip(legs, names)]
+        label = " → ".join(segments) + f" → {marker}{arrival:%H:%M}"
+        if margin is not None:
+            label += f" ({margin}m)"
+        if warning:
+            label += " !"
+        # Group alternate connections to the same train, in either direction.
+        services = trains or legs
+        service_ids = tuple(
+            leg["serviceJourney"].get("gid") or (
+                (leg["serviceJourney"].get("line") or {}).get("shortName"),
+                leg["serviceJourney"].get("number"), leg["destination"]["plannedTime"])
+            for leg in services
+        )
+        options.append({"departure": departure, "arrival": arrival,
+                        "train_departure": best_time(trains[0]["origin"]) if trains else departure,
+                        "train_id": service_ids, "via": route, "label": label, "details": details,
+                        "warning": warning, "traffic_warning": bool(delays), "margin": margin, "journey": journey})
+
+    if deadline is not None:
+        return sorted(options, key=lambda option: (option["arrival"], option["departure"]), reverse=True)
+    return sorted(options, key=lambda option: (option["train_departure"], option["arrival"], option["departure"]))
+
+
+def best_connections(options):
+    connections = sorted(options, key=lambda option: (
+        option["margin"] is None or option["margin"] >= 5,
+        -len(option.get("journey", {}).get("tripLegs", [])), option["departure"]
+    ), reverse=True)
+    selected = {}
+    for option in connections:
+        selected.setdefault((option["train_id"], option["via"]), option)
+    return list(selected.values())
+
+
+def arrival_alternatives(options, deadline=None, before_count=4, after_count=1):
+    # Keep one useful connection per boarding station for each train.
+    connections = best_connections(options)
+    before, after = {}, {}
+    for option in connections:
+        group = before if deadline is None or option["arrival"] <= deadline else after
+        group.setdefault((option["train_id"], option["via"]), option)
+    def select_trains(group, count, reverse):
+        ordered = sorted(group.values(), key=lambda option: option["arrival"], reverse=reverse)
+        train_ids = list(dict.fromkeys(option["train_id"] for option in ordered))[:count]
+        selected = []
+        for train_id in train_ids:
+            alternatives = [option for option in ordered if option["train_id"] == train_id]
+            alternatives.sort(key=lambda option: (option["margin"] is not None and option["margin"] < 5,
+                                                  option["via"] != "C"))
+            selected.extend(alternatives)
+        return selected
+
+    if deadline is None:
+        return select_trains(before, 2, True)
+    earlier_ids = {option["train_id"] for option in before.values()}
+    later = {key: option for key, option in after.items() if option["train_id"] not in earlier_ids}
+    return select_trains(before, before_count, True) + select_trains(later, after_count, False)
+
+
+def connect_train(feeder, train, now):
+    """Join a tram journey to the exact train platform, retaining walking data."""
+    legs = feeder.get("tripLegs") or []
+    available_trams = legs and all(
+        (leg.get("serviceJourney") or {}).get("line", {}).get("transportMode") == "tram"
+        and not leg.get("isCancelled") and not leg.get("isPartCancelled") for leg in legs
+    )
+    unavailable_train = train.get("isCancelled") or train.get("isPartCancelled")
+    if not available_trams or unavailable_train or feeder.get("isDeparted"):
+        return None
+    if best_time(legs[0]["origin"]) <= now:
+        return None
+    access = feeder.get("arrivalAccessLink")
+    arrival = best_time(legs[-1]["destination"])
+    if access:
+        value = access.get("estimatedArrivalTime") or access.get("plannedArrivalTime")
+        if not value:
+            return None
+        walking = access.get("estimatedDurationInMinutes")
+        if walking is None:
+            walking = access.get("plannedDurationInMinutes")
+        if walking is None:
+            return None
+        arrival = max(parse_time(value), arrival + timedelta(minutes=walking))
+    else:
+        destination = legs[-1]["destination"].get("realtimeStopPoint") or legs[-1]["destination"]["stopPoint"]
+        platform = train["origin"].get("realtimeStopPoint") or train["origin"]["stopPoint"]
+        if destination.get("gid") != platform.get("gid"):
+            return None
+    if best_time(train["origin"]) - arrival < timedelta(minutes=5):
+        return None
+
+    combined = copy.deepcopy(feeder)
+    for leg in combined["tripLegs"]:
+        leg["_details_reference"] = feeder.get("detailsReference")
+    links = combined.setdefault("connectionLinks", [])
+    if links is None:
+        combined["connectionLinks"] = links = []
+    indices = [leg.get("journeyLegIndex", index) for index, leg in enumerate(combined["tripLegs"])]
+    indices.extend(link.get("journeyLegIndex", 0) for link in links)
+    index = max(indices) + 1
+    access = combined.pop("arrivalAccessLink", None)
+    if access:
+        access["journeyLegIndex"] = index
+        access["destination"] = {"stopPoint": copy.deepcopy(train["origin"].get("realtimeStopPoint") or train["origin"]["stopPoint"]),
+                                 "plannedTime": access.get("plannedArrivalTime") or access["estimatedArrivalTime"],
+                                 "estimatedTime": access.get("estimatedArrivalTime")}
+        links.append(access)
+        index += 1
+    onward = copy.deepcopy(train)
+    onward["journeyLegIndex"] = index
+    combined["tripLegs"].append(onward)
+    # The API references describe the feeder only, not this combined journey.
+    combined.pop("detailsReference", None)
+    combined.pop("reconstructionReference", None)
+    return combined
+
+
+def retry_delay(header, now):
+    try:
+        seconds = float(header)
+    except (ValueError, TypeError):
+        try:
+            seconds = parsedate_to_datetime(header).timestamp() - now
+        except (ValueError, TypeError, OverflowError):
+            seconds = 300
+    return max(60, seconds)
+
+
+class Client:
+    def __init__(self, config, state):
+        self.config = config
+        self.state = state
+        self.lock = RLock()
+        self.metrics = {"requests": 0, "cache_hits": 0}
+
+    def request(self, url, headers, data=None):
+        with self.lock:
+            self.metrics["requests"] += 1
+        request = Request(
+            url, headers={"Accept": "application/json", "Accept-Language": "sv", **headers}, data=data
+        )
+        with urlopen(request, timeout=25) as response:
+            return json.load(response)
+
+    def get(self, path, params):
+        with self.lock:
+            credentials = f"{self.config['client_id']}:{self.config['client_secret']}"
+            fingerprint = hashlib.sha256(credentials.encode()).hexdigest()
+            token = self.state.get("token", {})
+            needs_token = (
+                token.get("expires", 0) <= time.time() + 60 or token.get("fingerprint") != fingerprint
+            )
+            if needs_token:
+                authorization = base64.b64encode(credentials.encode()).decode()
+                result = self.request(
+                    TOKEN_URL,
+                    {"Authorization": f"Basic {authorization}", "Content-Type": "application/x-www-form-urlencoded"},
+                    b"grant_type=client_credentials",
+                )
+                token = {
+                    "value": result["access_token"],
+                    "expires": time.time() + int(result["expires_in"]),
+                    "fingerprint": fingerprint,
+                }
+                self.state["token"] = token
+        return self.request(f"{API}/{path}?{urlencode(params, doseq=True)}", {"Authorization": f"Bearer {token['value']}"})
+
+    def stop(self, name):
+        with self.lock:
+            stops = self.state.setdefault("stops", {})
+            if name not in stops:
+                result = self.get("locations/by-text", {"q": name, "types": "stoparea", "limit": 10})
+                matches = [stop for stop in result.get("results") or []
+                           if name.casefold() in (stop["name"].casefold(), stop["name"].split(",")[0].casefold()) and stop.get("gid")]
+                if len(matches) != 1:
+                    raise ValueError(f"Kunde inte identifiera {name} entydigt")
+                stops[name] = matches[0]["gid"]
+            return stops[name]
+
+    def cached_query(self, params):
+        key = json.dumps(params, sort_keys=True)
+        with self.lock:
+            cache = self.state.setdefault("connection_queries", {})
+            current = time.time()
+            interval = max(60, int(self.config.get("interval_seconds", 60)))
+            expired = [key for key, value in cache.items() if current - value["fetched"] >= interval]
+            for expired_key in expired:
+                del cache[expired_key]
+            if key in cache:
+                self.metrics["cache_hits"] += 1
+                return cache[key]["response"]
+
+        response = self.get("journeys", params)
+        with self.lock:
+            cache[key] = {"response": response, "fetched": time.time()}
+        return response
+
+    def train_connections(self, deadline, now, destinations=None):
+        stations = destinations or ["C", "G"]
+        if len(stations) == 1:
+            return self.station_connections(deadline, now, stations)
+
+        # Only the station searches are independent; each connection needs its train first.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            searches = [executor.submit(self.station_connections, deadline, now, [via]) for via in stations]
+            return [journey for search in searches for journey in search.result()]
+
+    def station_connections(self, deadline, now, destinations=None):
+        origin_gid = self.config.get("origin_gid") or self.stop(route_name(self.config, "origin"))
+        destination_gid = self.config.get("destination_gid") or self.stop(route_name(self.config, "destination"))
+        combined = []
+        before_count = self.config.get("_arrival_before", 1)
+        after_count = self.config.get("_arrival_after", 0)
+        for via in destinations or ("C", "G"):
+            params = {"originGid": self.stop(STOPS[via]), "destinationGid": destination_gid,
+                      "transportModes": "train", "onlyDirectConnections": "true",
+                      "useRealTimeMode": "true", "limit": 10,
+                      "dateTime": (deadline or now.replace(second=0, microsecond=0)).isoformat(),
+                      "dateTimeRelatesTo": "arrival" if deadline else "departure"}
+            groups = [("previous", before_count), ("next", after_count)] if deadline else [("next", 1)]
+            for direction, wanted in groups:
+                if wanted == 0:
+                    continue
+                search_params = dict(params)
+                seen_trains, seen_pages = set(), set()
+                found, attempted = 0, 0
+                # At most two unsuccessful candidates beyond the requested count.
+                candidate_budget = wanted + 2
+                for _ in range(max(3, wanted + 1) if deadline else 1):
+                    response = self.cached_query(search_params)
+                    candidates = []
+                    for raw in response.get("results") or []:
+                        legs = raw.get("tripLegs") or []
+                        if len(legs) != 1:
+                            continue
+                        train = {**legs[0], "_details_reference": raw.get("detailsReference")}
+                        service = train.get("serviceJourney") or {}
+                        if (service.get("line") or {}).get("transportMode") != "train":
+                            continue
+                        if best_time(train["origin"]) <= now:
+                            continue
+                        arrival = best_time(train["destination"])
+                        before = deadline is not None and arrival <= deadline
+                        if deadline is not None and before != (direction == "previous"):
+                            continue
+                        candidates.append(train)
+                    candidates.sort(key=lambda train: best_time(train["destination"]),
+                                    reverse=deadline is not None and direction == "previous")
+                    for train in candidates:
+                        identity = (train.get("serviceJourney") or {}).get("gid") or train["origin"]["plannedTime"]
+                        if identity in seen_trains:
+                            continue
+                        seen_trains.add(identity)
+                        unavailable = train.get("isCancelled") or train.get("isPartCancelled")
+                        if unavailable:
+                            reference = deadline or now
+                            event_time = best_time(train["destination"] if deadline else train["origin"])
+                            if abs(event_time - reference) <= timedelta(minutes=90):
+                                combined.append({"tripLegs": [train], "_alert_only": True, "_alert_via": via})
+                            continue
+                        attempted += 1
+                        if traffic_alerts([{"tripLegs": [train]}], now):
+                            combined.append({"tripLegs": [train], "_alert_only": True, "_alert_via": via})
+                        platform = train["origin"].get("realtimeStopPoint") or train["origin"]["stopPoint"]
+                        cutoff = best_time(train["origin"]) - timedelta(minutes=5)
+                        feeder_params = {"originGid": origin_gid, "destinationGid": platform["gid"],
+                                         "transportModes": "tram", "includeNearbyStopAreas": "false",
+                                         "useRealTimeMode": "true", "limit": 10,
+                                         "dateTime": cutoff.isoformat(), "dateTimeRelatesTo": "arrival"}
+                        feasible = []
+                        for _ in range(2):
+                            feeder_response = self.cached_query(feeder_params)
+                            feeders = feeder_response.get("results") or []
+                            for raw in feeders:
+                                legs = raw.get("tripLegs") or []
+                                relevant = (legs and now < best_time(legs[0]["origin"]) <= cutoff
+                                            and parse_time(legs[-1]["destination"]["plannedTime"]) <= cutoff)
+                                if relevant and traffic_alerts([raw], now):
+                                    combined.append({**raw, "_alert_only": True, "_alert_via": via})
+                            connections = [connect_train(feeder, train, now) for feeder in feeders]
+                            connections = [connection for connection in connections if connection is not None
+                                           and journey_options([connection], now, via=via)]
+                            feasible.extend(connections)
+                            if any(len(connection["tripLegs"]) == 2 for connection in connections):
+                                break
+                            link = (feeder_response.get("links") or {}).get("previous") or ""
+                            references = parse_qs(urlsplit(link).query).get("paginationReference", [])
+                            if not references or feeder_params.get("paginationReference") == references[0]:
+                                break
+                            feeder_params["paginationReference"] = references[0]
+                        if feasible:
+                            combined.extend(feasible)
+                            found += 1
+                        if found >= wanted or attempted >= candidate_budget:
+                            break
+                    if found >= wanted or attempted >= candidate_budget:
+                        break
+                    link = (response.get("links") or {}).get(direction) or ""
+                    references = parse_qs(urlsplit(link).query).get("paginationReference", [])
+                    if not references or references[0] in seen_pages:
+                        break
+                    seen_pages.add(references[0])
+                    search_params["paginationReference"] = references[0]
+        return combined
+
+    def watched_journey(self, watch):
+        journey = copy.deepcopy(watch["journey"])
+        responses = {}
+        for leg in journey["tripLegs"]:
+            reference = leg.get("_details_reference") or journey.get("detailsReference")
+            if not reference:
+                raise ValueError("Bevakningen saknar detaljreferens")
+            if reference not in responses:
+                responses[reference] = self.get(f"journeys/{quote(reference, safe='')}/details", {"includes": "servicejourneycalls"})
+            gid = leg["serviceJourney"].get("gid")
+            matches = [(detail, service) for detail in responses[reference].get("tripLegs") or []
+                       for service in detail.get("serviceJourneys") or [] if gid and service.get("gid") == gid]
+            if len(matches) != 1:
+                raise ValueError("Den bevakade avgången saknas i svaret")
+            detail, service = matches[0]
+            leg["isCancelled"] = bool(detail.get("isCancelled"))
+            leg["isPartCancelled"] = bool(detail.get("isPartCancelled"))
+            calls = service.get("callsOnServiceJourney") or detail.get("callsOnTripLeg") or []
+            for endpoint, field in (("origin", "Departure"), ("destination", "Arrival")):
+                old = leg[endpoint]
+                matches = [call for call in calls if call.get("stopPoint", {}).get("gid") == old["stopPoint"].get("gid")
+                           and call.get(f"planned{field}Time") == old["plannedTime"]]
+                if len(matches) != 1:
+                    raise ValueError("Hållplatsen för bevakad avgång saknas")
+                call = matches[0]
+                leg[endpoint] = {"stopPoint": call["stopPoint"], "plannedTime": call[f"planned{field}Time"],
+                                 "estimatedTime": call.get(f"estimated{field}Time"),
+                                 "realtimeStopPoint": call.get("realtimeStopPoint"),
+                                 "plannedPlatform": call.get("plannedPlatform"),
+                                 "estimatedPlatform": call.get("estimatedPlatform")}
+                if call.get("isCancelled") or call.get(f"is{field}Cancelled"):
+                    leg["isCancelled"] = True
+        journey["isDeparted"] = False
+        journey["_watch"] = True
+        return [journey]
+
+    def journeys(self, deadline, now, destinations=None):
+        outbound_commute = (route_filters(self.config) == ["C", "G"]
+                            and route_name(self.config, "origin").split(",")[0] == STOPS["origin"])
+        if outbound_commute:
+            return self.train_connections(deadline, now, destinations)
+        origin_gid = self.config.get("origin_gid") or self.stop(route_name(self.config, "origin"))
+        destination_gid = self.config.get("destination_gid") or self.stop(route_name(self.config, "destination"))
+        params = {"originGid": origin_gid, "destinationGid": destination_gid,
+                  "includeNearbyStopAreas": "false",
+                  "useRealTimeMode": "true", "limit": 10,
+                  "dateTime": (deadline or now).isoformat(),
+                  "dateTimeRelatesTo": "arrival" if deadline else "departure"}
+        filters = destinations or route_filters(self.config)
+        before_count = self.config.get("_arrival_before", 1)
+        after_count = self.config.get("_arrival_after", 0)
+        if filters == ["C", "G"]:
+            params["transportModes"] = ["tram", "train"]
+        results = []
+        seen_references = set()
+        references = {}
+        requested_direction = None
+        # Arrival searches need pages on both sides of the requested time.
+        for _ in range(max(4, before_count + after_count + 1) if deadline else 3):
+            response = self.cached_query(params)
+            results.extend(response.get("results") or [])
+            filtered_options = {
+                via: journey_options(results, now, deadline, via, include_later=True)
+                for via in filters
+            }
+            missing_before = False
+            missing_after = False
+            if deadline is not None:
+                for options in filtered_options.values():
+                    selected = arrival_alternatives(options, deadline, before_count, after_count)
+                    missing_before |= sum(option["arrival"] <= deadline for option in selected) < before_count
+                    missing_after |= sum(option["arrival"] > deadline for option in selected) < after_count
+                enough_results = not missing_before and not missing_after
+            else:
+                enough_results = all(filtered_options.values())
+            if enough_results:
+                break
+
+            directions = [requested_direction] if requested_direction else ["previous", "next"]
+            for direction in directions:
+                link = (response.get("links") or {}).get(direction) or ""
+                values = parse_qs(urlsplit(link).query).get("paginationReference", [])
+                references[direction] = values[0] if values else None
+            preferred = ["next", "previous"] if missing_after else ["previous", "next"]
+            if deadline is None:
+                preferred = ["next"]
+            requested_direction = next((direction for direction in preferred
+                                        if references.get(direction) and references[direction] not in seen_references), None)
+            if requested_direction is None:
+                break
+            reference = references[requested_direction]
+            seen_references.add(reference)
+            params["paginationReference"] = reference
+        return results
+
+
+def fetch_routes(client, destinations, deadline, now, refresh=True, manual=False):
+    state = client.state
+    cache = state.setdefault("routes", {})
+    interval = max(60, int(client.config.get("interval_seconds", 60)))
+    endpoints = [client.config.get(f"{key}_gid") or route_name(client.config, key)
+                 for key in ("origin", "destination")]
+    route_key = json.dumps([*endpoints, departure_target(client.config)[1]], ensure_ascii=False)
+    station_key = ",".join(sorted(destinations))
+    if deadline is not None:
+        station_key += f":{client.config.get('_arrival_before', 1)}:{client.config.get('_arrival_after', 0)}"
+    key = f"{now.date()}:{route_key}:v13:{station_key}:{deadline.isoformat() if deadline else 'next'}"
+    if client.config.get("_watch"):
+        key = f"{now.date()}:watch:{client.config['_watch']['id']}"
+    cached = cache.get(key, {})
+    watch = client.config.get("_watch")
+    watch_ready = manual or not watch or warning_due(watch["journey"], now, client.config)
+    should_fetch = (
+        refresh and watch_ready and time.time() >= state.get("retry_at", 0)
+        and time.time() - cached.get("fetched", 0) >= interval
+    )
+    if should_fetch:
+        started = time.monotonic()
+        try:
+            ready = now + timedelta(minutes=departure_target(client.config)[1])
+            results = client.watched_journey(client.config["_watch"]) if client.config.get("_watch") else client.journeys(deadline, ready, destinations)
+            cached = {"results": results, "fetched": time.time(),
+                      "diagnostics": {**client.metrics, "seconds": round(time.monotonic() - started, 3)}}
+            cache[key] = cached
+            state.update(error="", failures=0, retry_at=0)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError) as error:
+            failures = state.get("failures", 0) + 1
+            delay = min(3600, 60 * 2 ** min(failures - 1, 6))
+            message = f"oväntat API-svar ({type(error).__name__})"
+            if isinstance(error, HTTPError):
+                message = f"HTTP {error.code}"
+                if error.code == 429:
+                    delay = retry_delay(error.headers.get("Retry-After"), time.time())
+                if error.code == 401:
+                    state.pop("token", None)
+            elif isinstance(error, (URLError, OSError)):
+                message = "nätverksfel/timeout"
+            elif isinstance(error, ValueError) and str(error).startswith("Kunde inte identifiera"):
+                message = str(error)
+            state.update(error=message, failures=failures, retry_at=time.time() + delay)
+    state["routes"] = {key: value for key, value in cache.items() if key.startswith(str(now.date()))}
+    return {destination: cached for destination in destinations}
+
+
+@contextmanager
+def progress(message):
+    processes = []
+
+    def show():
+        # Keep Rofi's normal entry/list widgets: removing them crashes Rofi 1.7.5.
+        command = ["rofi", "-dmenu", "-p", "Västtrafik", "-theme-str", "listview { lines: 1; }"]
+        try:
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, text=True,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            processes.append(process)
+            process.stdin.write(f"{message} Vänta medan sökningen pågår.\n")
+            process.stdin.close()
+        except OSError:
+            pass
+
+    # Cached results should appear immediately without a flashing loading window.
+    timer = Timer(0.3, show)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+        timer.join()
+        for process in processes:
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            if process.stdin:
+                process.stdin.close()
+
+
+def rofi(prompt, choices=()):
+    result = subprocess.run(["rofi", "-dmenu", "-i", "-p", prompt], input="\n".join(choices), text=True, capture_output=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def choose_plan(now, config=None):
+    config = config or {}
+    choices = {"Båda": ["C", "G"], "Via Centralen": ["C"], "Via Gamlestaden": ["G"]}
+    filters = route_filters(config)
+    choice = "Båda"
+    if filters == ["C", "G"]:
+        choice = rofi(f"{route_name(config, 'destination')} – välj bytesstation", [*choices, "Åk så snart som möjligt"])
+    if choice == "Åk så snart som möjligt":
+        return {}
+    if choice not in choices:
+        return None
+    label, minutes = arrival_target(config)
+    value = rofi(f"Framme senast – {label}: HH:MM (inklusive {minutes} min från hållplatsen)")
+    if value is None:
+        return None
+    try:
+        deadline = arrival_deadline(value, now) - timedelta(minutes=minutes)
+        if deadline <= now:
+            raise ValueError("Tiden är för nära när sista sträckan räknas med")
+    except ValueError as error:
+        rofi(str(error), ["Försök igen med vänsterklick"])
+        return None
+    track_usage(f"Ankomstsökning klar: {choice if filters == ['C', 'G'] else 'alla trafikslag'}")
+    return {"deadline": deadline.isoformat(), "destinations": choices[choice] if filters == ["C", "G"] else filters}
+
+
+def choose_stop(config, prompt):
+    query = rofi(prompt)
+    if not query:
+        return None
+    with progress("Söker hållplatser hos Västtrafik…"):
+        # Use the same lock/backoff as journey requests and never save partial choices.
+        with (CACHE / "lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = load_json(CACHE / "state.json")
+            if time.time() < state.get("retry_at", 0):
+                results = None
+            else:
+                try:
+                    response = Client(config, state).get("locations/by-text", {"q": query, "types": "stoparea", "limit": 10})
+                    results = [stop for stop in response.get("results") or [] if stop.get("gid")]
+                except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError) as error:
+                    delay = retry_delay(error.headers.get("Retry-After"), time.time()) if isinstance(error, HTTPError) and error.code == 429 else 60
+                    state.update(retry_at=time.time() + delay, error="hållplatssökning misslyckades")
+                    results = None
+                save_json(CACHE / "state.json", state)
+    if results is None:
+        rofi("Kunde inte söka hållplatser – försök senare", ["Tillbaka"])
+        return None
+    labels = [f"{index + 1}. {stop['name']}" for index, stop in enumerate(results)]
+    selected = rofi("Välj hållplats", labels or ["Inga hållplatser hittades"])
+    if selected not in labels:
+        return None
+    return results[labels.index(selected)]
+
+
+def home_from(config):
+    origin = choose_stop(config, "Hem från vilken hållplats? Exempel: Göteborg Central")
+    if origin is None:
+        return None
+    updated = everyday_route(config, homeward=True)
+    updated.update(origin=origin["name"], origin_gid=origin["gid"])
+    return updated
+
+
+def change_route(config):
+    origin = choose_stop(config, "Sök avgångshållplats")
+    if origin is None:
+        return None
+    destination = choose_stop(config, "Sök destinationshållplats")
+    if destination is None:
+        return None
+    updated = {**config, "origin": origin["name"], "origin_gid": origin["gid"],
+               "destination": destination["name"], "destination_gid": destination["gid"]}
+    return updated
+
+
+def reverse_route(config):
+    updated = {**config, "origin": route_name(config, "destination"),
+               "destination": route_name(config, "origin")}
+    updated.pop("origin_gid", None)
+    updated.pop("destination_gid", None)
+    for source, target in (("origin_gid", "destination_gid"), ("destination_gid", "origin_gid")):
+        if config.get(source):
+            updated[target] = config[source]
+    return updated
+
+
+def cached_watch(watch):
+    state = load_json(CACHE / "state.json")
+    return state.get("routes", {}).get(f"{watch['date']}:watch:{watch['id']}", {})
+
+
+def current_watch(now):
+    watch = load_json(CONFIG.with_name("watch.json"))
+    if not watch or watch.get("date") != str(now.date()):
+        return None
+    expires = parse_time(watch["expires"])
+    results = cached_watch(watch).get("results") or []
+    if results and not journey_problem(results[0]):
+        latest_expiry = journey_arrival(results[0]) + timedelta(minutes=arrival_target(watch["config"])[1] + 30)
+        # Keep the last known delay through fetch failures, but bound stale watches.
+        expires = min(max(expires, latest_expiry), expires + timedelta(hours=3))
+    return watch if now < expires else None
+
+
+def save_watch(config, option, now):
+    journey = option["journey"]
+    references = [leg.get("_details_reference") or journey.get("detailsReference")
+                  for leg in journey.get("tripLegs") or []]
+    if not references or not all(references):
+        return False
+    expires = option["arrival"] + timedelta(minutes=arrival_target(config)[1] + 30)
+    settings = {key: config[key] for key in ("origin", "destination", "origin_gid", "destination_gid",
+                                            "arrival_targets", "departure_targets") if key in config}
+    settings.update(origin=route_name(config, "origin"), destination=route_name(config, "destination"))
+    with CONFIG.with_name("watch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        save_json(CONFIG.with_name("watch.json"), {"date": str(now.date()), "expires": expires.isoformat(),
+                  "id": str(time.time_ns()), "journey": journey, "config": settings,
+                  "label": option["label"], "via": option["via"]})
+    track_usage("Bevakning startad")
+    return True
+
+
+def clear_watch():
+    with CONFIG.with_name("watch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        save_json(CONFIG.with_name("watch.json"), {})
+    track_usage("Bevakning avslutad")
+
+
+def paused_today(now):
+    return load_json(CONFIG.with_name("pause.json")).get("date") == str(now.date())
+
+
+def pause_today(now):
+    CONFIG.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    save_json(CONFIG.with_name("pause.json"), {"date": str(now.date())})
+    track_usage("Paus aktiverad")
+
+
+def remind_to_pack(now):
+    if paused_today(now):
+        return False
+    if not CONFIG.with_name("watch.json").exists():
+        return False
+    # Separate from the network lock: a slow API must not delay the reminder.
+    with CONFIG.with_name("watch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        watch = current_watch(now)
+        if not watch:
+            return False
+        leave = planned_leave(watch["journey"], watch["config"])
+        if leave is None or not leave - timedelta(minutes=2) <= now < leave:
+            return False
+        sent_path = CACHE / "pack-reminder.json"
+        if load_json(sent_path).get("watch_id") == watch["id"]:
+            return False
+        cached = cached_watch(watch)
+        results = cached.get("results") or []
+        problem = journey_problem(results[0]) if results else None
+        title = "Välj en annan resa" if problem else "Dags att packa ihop datorn"
+        message = problem or f"Gå senast {leave:%H:%M}."
+        stale = now.timestamp() - cached.get("fetched", 0) > 180
+        if stale:
+            message += " Trafikläget är inte nyligen uppdaterat – kontrollera resan."
+        try:
+            subprocess.run(["notify-send", "--app-name=Västtrafik", "--urgency=critical",
+                            title, message],
+                           check=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        save_json(sent_path, {"watch_id": watch["id"]})
+        return True
+
+
+def itinerary_text(option, config, deadline=None):
+    target_label, target_minutes = arrival_target(config)
+    departure_label, departure_minutes = departure_target(config)
+    arrival = option["arrival"] + timedelta(minutes=target_minutes)
+    leave = planned_leave(option["journey"], config) or option["departure"] - timedelta(minutes=departure_minutes)
+    timing = ""
+    if deadline is not None:
+        difference = int((option["arrival"] - deadline).total_seconds() / 60)
+        relation = "efter" if difference > 0 else "före"
+        timing = f" ({abs(difference)} min {relation})" if difference else " (på önskad tid)"
+    return (f"{target_label.capitalize()} ≈{arrival:%H:%M}{timing} | "
+            f"Gå {leave:%H:%M} | "
+            f"{STOPS.get(option['via'], 'Resa')}: {option['label']}")
+
+
+def planned_leave(journey, config):
+    legs = journey.get("tripLegs") or []
+    if not legs:
+        return None
+    access = journey.get("departureAccessLink") or {}
+    departure = parse_time(access.get("plannedDepartureTime") or legs[0]["origin"]["plannedTime"])
+    return departure - timedelta(minutes=departure_target(config)[1])
+
+
+def warning_due(journey, now, config):
+    leave = planned_leave(journey, config)
+    return leave is None or now >= leave - timedelta(minutes=30)
+
+
+def seen_alerts(now):
+    state = load_json(CACHE / "seen-alerts.json")
+    return set(state.get("alerts", [])) if state.get("date") == str(now.date()) else set()
+
+
+def acknowledge_alerts(alerts, now):
+    if not alerts:
+        return
+    with (CACHE / "seen-alerts.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        seen = seen_alerts(now)
+        # Keep the last acknowledged status per departure, not every past delay.
+        statuses = {alert.split(": ", 1)[-1]: alert for alert in seen}
+        statuses.update({alert.split(": ", 1)[-1]: alert for alert in alerts})
+        save_json(CACHE / "seen-alerts.json", {"date": str(now.date()), "alerts": sorted(statuses.values())})
+
+
+def panel_alerts(routes, now, config=None):
+    config = config or {}
+    watch = config.get("_watch")
+    if watch and not warning_due(watch["journey"], now, config):
+        return []
+    alerts = []
+    for destination, cached in routes.items():
+        results = cached.get("results", [])
+        journeys = [journey for journey in results if not journey.get("_alert_only")
+                    and (destination not in ("C", "G") or any(
+                        leg[call]["stopPoint"].get("stopArea", {}).get("name") == STOPS[destination]
+                        for leg in journey.get("tripLegs") or [] for call in ("origin", "destination")))]
+        # Raw train alerts have no feeder of their own; use the searched connections
+        # for that station to decide when leaving becomes relevant.
+        context_due = any(warning_due(journey, now, config) for journey in journeys)
+        relevant = [journey for journey in results if
+                    (context_due if journey.get("_alert_only") and journeys else warning_due(journey, now, config))]
+        alerts.extend(traffic_alerts(relevant, now, destination))
+    return list(dict.fromkeys(alerts))
+
+
+def render(routes, deadline, now, error, interval, config=None):
+    config = config or {}
+    watch = config.get("_watch")
+    if watch and not warning_due(watch["journey"], now, config):
+        return "🚋", "idle"
+    stale = any(time.time() - cached.get("fetched", 0) > interval + 30
+                for cached in routes.values())
+    if error or stale:
+        return "🚋 ?", "warning"
+    seen = seen_alerts(now)
+    disrupted = any(alert not in seen for alert in panel_alerts(routes, now, config))
+    return ("🚋 !", "warning") if disrupted else ("🚋", "normal")
+
+
+def load_routes(config, destinations, deadline=None, refresh=True, manual=False):
+    if not refresh:
+        # Atomic cache replacement allows menu reads without waiting for a fetch lock.
+        state = load_json(CACHE / "state.json")
+        routes = fetch_routes(Client(config, state), destinations, deadline, datetime.now(ZONE), refresh=False)
+        return routes, state.get("error")
+
+    # Share network requests across monitors, but never hold the lock during Rofi.
+    with (CACHE / "lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_json(CACHE / "state.json")
+        routes = fetch_routes(Client(config, state), destinations, deadline, datetime.now(ZONE), manual=manual)
+        save_json(CACHE / "state.json", state)
+    return routes, state.get("error")
+
+
+def show_journeys(config, routes, error):
+    deadline = None
+    before_count, after_count = 1, 0
+    destinations = route_filters(config)
+    while True:
+        now = datetime.now(ZONE)
+        options = []
+        departure_label, departure_minutes = departure_target(config)
+        ready = now + timedelta(minutes=departure_minutes)
+        for destination, cached in routes.items():
+            options.extend(journey_options(cached.get("results", []), ready, deadline, destination, include_later=True))
+        if deadline is not None:
+            options = arrival_alternatives(options, deadline, before_count, after_count)
+        else:
+            options = best_connections(options)
+            options.sort(key=lambda option: (option["arrival"], str(option["train_id"]),
+                                                  option["via"] != "C", option["departure"]))
+        target_label, target_minutes = arrival_target(config)
+        rows = []
+        for index, option in enumerate(options):
+            rows.append(f"{index + 1}. {itinerary_text(option, config, deadline)}")
+        title = f"{route_name(config, 'origin')} → {route_name(config, 'destination')}"
+        title += f" – {target_label} senast {deadline + timedelta(minutes=target_minutes):%H:%M}" if deadline else " – nästa resor"
+        fetched = min((cached.get("fetched", 0) for cached in routes.values()), default=0)
+        if fetched:
+            title += f" – hämtat {datetime.fromtimestamp(fetched, ZONE):%H:%M}"
+        if departure_minutes == 0:
+            title += " – tid till hållplats ej inräknad"
+        interval = max(60, int(config.get("interval_seconds", 60)))
+        stale = any(time.time() - cached.get("fetched", 0) > interval + 30 for cached in routes.values())
+        if error or stale:
+            title += " – gamla/saknade uppgifter"
+        choices = ["Framme senast…", "Åk så snart som möjligt", "Uppdatera resorna"]
+        if deadline is not None:
+            choices += ["Ladda en tidigare", "Ladda en senare"]
+        watch = current_watch(now)
+        if watch:
+            choices += ["Visa bevakad resa", "Uppdatera bevakad resa", "Avsluta bevakning"]
+            alert_config = {**config, **watch["config"], "_watch": watch}
+            alert_routes, alert_error = load_routes(alert_config, [watch["via"]], refresh=False)
+        else:
+            alert_config, alert_routes, alert_error = config, routes, error
+        seen = seen_alerts(now)
+        unseen = [alert for alert in panel_alerts(alert_routes, now, alert_config) if alert not in seen]
+        warning_choice = "! Visa varningen – bevakad resa" if watch else "! Visa varningen – sökresultaten"
+        if unseen:
+            choices.insert(0, warning_choice)
+        actions = set(choices)
+        has_results = any("results" in cached for cached in routes.values())
+        empty_message = "Inga genomförbara reseförslag hittades" if has_results else "Välj ankomsttid eller Åk så snart som möjligt för att söka"
+        choices += rows or [empty_message]
+        route_actions = ["Hem från jobbet", "Hem från…", "Till jobbet", "Byt riktning", "Annan resa…", "Inställningar…", "Pausa resten av dagen"]
+        choices += route_actions
+        actions.update(route_actions)
+        alerts = list(dict.fromkeys(alert for destination, cached in routes.items()
+                                    for alert in traffic_alerts(cached.get("results", []), now, destination)))
+        choices += ["Förseningar och inställda avgångar…"]
+        actions.add("Förseningar och inställda avgångar…")
+        if error:
+            choices += [f"Hämtningsfel: {error}"]
+        selected = rofi(title, choices)
+        if selected is None:
+            track_usage("Meny stängd")
+            return
+        if selected in actions:
+            track_usage(f"Menyval: {selected}")
+        if selected == "Pausa resten av dagen":
+            pause_today(datetime.now(ZONE))
+            return
+        if selected == warning_choice:
+            alert_fetched = min((cached.get("fetched", 0) for cached in alert_routes.values()), default=0)
+            label = "Varning för bevakad resa" if watch else "Varning för sökresultaten"
+            if alert_fetched:
+                label += f" – hämtat {datetime.fromtimestamp(alert_fetched, ZONE):%H:%M}"
+            status = []
+            if alert_error or time.time() - alert_fetched > interval + 30:
+                status.append("Äldre uppgifter – uppdatera resan för aktuellt trafikläge")
+            if alert_error:
+                status.append(f"Hämtningsfel: {alert_error}")
+            rofi(label, [*unseen, *status])
+            acknowledge_alerts(unseen, now)
+            continue
+        if selected == "Avsluta bevakning":
+            clear_watch()
+            continue
+        show_watch = selected in ("Visa bevakad resa", "Uppdatera bevakad resa") and watch
+        if show_watch:
+            watch_config = {**config, **watch["config"], "_watch": watch}
+            if selected == "Uppdatera bevakad resa":
+                with progress("Uppdaterar bevakad resa…"):
+                    watched, watch_error = load_routes(watch_config, [watch["via"]], manual=True)
+            else:
+                watched, watch_error = load_routes(watch_config, [watch["via"]], refresh=False)
+            cached = watched.get(watch["via"], {})
+            watch_alerts = traffic_alerts(cached.get("results", []), now)
+            summary = list(watch_alerts)
+            status = summary or ["Inga registrerade förseningar eller inställda avgångar"]
+            if watch_error or time.time() - cached.get("fetched", 0) > max(60, int(config.get("interval_seconds", 60))) + 30:
+                status = ["Gamla/saknade bevakningsuppgifter – välj Uppdatera bevakad resa", *summary]
+            if watch_error:
+                status += [f"Hämtningsfel: {watch_error}"]
+            if not warning_due(watch["journey"], now, watch_config):
+                status += ["Automatisk bevakning börjar 30 minuter innan du behöver gå; manuell uppdatering är möjlig"]
+            fetched = cached.get("fetched", 0)
+            label = f"Bevakad resa – hämtat {datetime.fromtimestamp(fetched, ZONE):%H:%M}" if fetched else "Bevakad resa"
+            results = cached.get("results") or []
+            latest = results[0] if results else watch["journey"]
+            times = watched_times(latest, watch_config)
+            if not results:
+                times.insert(0, "Tider sparade när resan valdes – ännu inte uppdaterade")
+            departure_label, _ = departure_target(watch_config)
+            leave = planned_leave(watch["journey"], watch_config)
+            heading = [f"Lämna {departure_label} senast {leave:%H:%M} (planerad avgång)"] if leave else []
+            rofi(label, [*heading, *times, *status])
+            acknowledge_alerts(watch_alerts, now)
+            continue
+        if selected == "Förseningar och inställda avgångar…":
+            status = [] if alerts else ["Inga registrerade förseningar eller inställda avgångar i sökresultaten"]
+            if not has_results or error or stale:
+                status = ["Gamla/saknade sökresultat – välj Uppdatera resorna"]
+            if watch:
+                status += ["För din valda resa: välj Visa bevakad resa eller Uppdatera bevakad resa"]
+            rofi("Förseningar och inställda avgångar – sökresultaten", [*alerts, *status])
+            acknowledge_alerts(alerts, now)
+            continue
+        if selected in rows:
+            track_usage("Resedetaljer visade")
+            option = options[rows.index(selected)]
+            cached = routes.get(option["via"]) or next(iter(routes.values()))
+            updated = datetime.fromtimestamp(cached["fetched"], ZONE)
+            details = option["details"] + [f"{target_label}: cirka {option['arrival'] + timedelta(minutes=target_minutes):%H:%M} ({target_minutes} min från hållplatsen)"]
+            action = rofi(f"Resa och förseningar – hämtat {updated:%H:%M}", ["Bevaka den här resan", *details])
+            acknowledge_alerts(traffic_alerts([option["journey"]], now), now)
+            if action == "Bevaka den här resan":
+                if not save_watch(config, option, datetime.now(ZONE)):
+                    rofi("Kan inte bevaka denna resa – sök igen för aktuella referenser", ["Tillbaka"])
+            continue
+        if selected == "Framme senast…":
+            plan = choose_plan(datetime.now(ZONE), config)
+            if plan is None:
+                continue
+            deadline = parse_time(plan["deadline"]) if plan.get("deadline") else None
+            destinations = plan.get("destinations", route_filters(config))
+            before_count, after_count = 1, 0
+        elif deadline is not None and selected == "Ladda en tidigare":
+            before_count += 1
+        elif deadline is not None and selected == "Ladda en senare":
+            after_count += 1
+        elif selected == "Uppdatera resorna":
+            pass
+        elif selected == "Inställningar…":
+            settings = ["Tid till hållplats…", "Tid från hållplats till mål…", "Spara denna sträcka som standard"]
+            setting = rofi("Reseinställningar", settings)
+            if setting in settings:
+                track_usage(f"Inställningsval: {setting}")
+            if setting == "Spara denna sträcka som standard":
+                save_route(config, persist_endpoints=True)
+                continue
+            if setting == "Tid till hållplats…":
+                updated = change_departure_target(config)
+                if updated is None:
+                    continue
+                config = updated
+            elif setting == "Tid från hållplats till mål…":
+                updated = change_arrival_target(config)
+                if updated is None:
+                    continue
+                if deadline is not None:
+                    deadline += timedelta(minutes=target_minutes - arrival_target(updated)[1])
+                config = updated
+            else:
+                continue
+        elif selected == "Åk så snart som möjligt":
+            deadline = None
+            destinations = route_filters(config)
+        elif selected in ("Byt riktning", "Annan resa…", "Hem från jobbet", "Hem från…", "Till jobbet"):
+            if selected == "Hem från…":
+                updated = home_from(config)
+            elif selected in ("Hem från jobbet", "Till jobbet"):
+                updated = everyday_route(config, selected == "Hem från jobbet")
+            else:
+                updated = reverse_route(config) if selected == "Byt riktning" else change_route(config)
+            if updated is None:
+                continue
+            config = updated
+            deadline = None
+            destinations = route_filters(config)
+        else:
+            continue
+        search_config = {**config, "_arrival_before": before_count, "_arrival_after": after_count}
+        with progress("Laddar resor…"):
+            if selected == "Uppdatera resorna" and watch:
+                watch_config = {**config, **watch["config"], "_watch": watch}
+                load_routes(watch_config, [watch["via"]], manual=True)
+            routes, error = load_routes(search_config, destinations, deadline)
+
+
+def setup():
+    if CONFIG.exists():
+        print(f"Konfiguration finns redan: {CONFIG}. Redigera den lokalt vid behov.")
+        return
+    client_id = getpass.getpass("Client ID (dold inmatning): ").strip()
+    client_secret = getpass.getpass("Client secret (dold inmatning): ").strip()
+    if not client_id or not client_secret:
+        raise ValueError("Båda uppgifterna behövs")
+    CONFIG.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with CONFIG.open("x") as file:
+        json.dump({"client_id": client_id, "client_secret": client_secret, "interval_seconds": 60}, file, indent=2)
+    print(f"Sparat i {CONFIG}. Kör skriptet med --now för att prova.")
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--setup", action="store_true", help="Spara API-uppgifter med dold inmatning")
+    parser.add_argument("--now", action="store_true", help="Hämta även utanför kl. 15–17 (respekterar cache)")
+    parser.add_argument("--menu", action="store_true", help="Öppna reseplaneraren i Rofi")
+    parser.add_argument("--pause", action="store_true", help="Pausa hämtning och påminnelser resten av dagen")
+    parser.add_argument("--text", action="store_true", help="Visa resor som läsbar terminaltext")
+    parser.add_argument("--diagnostics", action="store_true", help="Visa cacheålder och senaste sökningens anrop/tid utan nätverksanrop")
+    parser.add_argument("--usage", action="store_true", help="Sammanfatta lokal användning utan nätverksanrop")
+    args = parser.parse_args()
+    if args.usage:
+        show_usage()
+        return
+    if args.setup:
+        setup()
+        return
+
+    button = os.environ.get("BLOCK_BUTTON")
+    now = datetime.now(ZONE)
+    clicked = args.menu or button in ("1", "2", "3")
+    if clicked:
+        track_usage("Meny öppnad: terminal" if args.menu else f"Meny öppnad: musknapp {button}")
+    elif args.text:
+        track_usage("Terminal: resor")
+    elif args.now:
+        track_usage("Terminal: hämta nu")
+    if args.pause:
+        pause_today(now)
+    if paused_today(now):
+        if args.text or args.diagnostics:
+            print("Västtrafik är pausad resten av dagen – inga hämtningar eller påminnelser")
+            return
+        print(f"🚋 ⏸\n🚋 ⏸\n{COLORS['idle']}", flush=True)
+        if not clicked:
+            return
+        selected = rofi("Västtrafik pausad till imorgon", ["Återuppta", "Stäng"])
+        if selected != "Återuppta":
+            return
+        save_json(CONFIG.with_name("pause.json"), {})
+        track_usage("Paus avslutad")
+    watch = current_watch(now)
+    active = 15 <= now.hour < 17 or args.now or clicked or args.text or args.diagnostics or bool(watch)
+    CACHE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not (clicked or args.text or args.diagnostics):
+        remind_to_pack(now)
+    routes = {}
+    error = None
+    config = None
+    if not CONFIG.exists():
+        text, color = "🚋 ?", "warning"
+        if clicked:
+            rofi("Västtrafik saknar API-uppgifter", ["Kör ~/.config/i3/vasttrafik --setup i en terminal"])
+    elif not active:
+        text, color = "🚋", "idle"
+    else:
+        config = {**load_json(CONFIG), **load_json(CONFIG.with_name("route.json"))}
+        if not config.get("client_id") or not config.get("client_secret"):
+            raise ValueError("Client ID/secret saknas i konfigurationen")
+        if watch and (args.diagnostics or not clicked and not args.text):
+            config = {**config, **watch["config"], "_watch": watch}
+            destinations = [watch["via"]]
+        else:
+            destinations = route_filters(config)
+        routes, error = load_routes(config, destinations, refresh=not (clicked or args.diagnostics))
+        interval = max(60, int(config.get("interval_seconds", 60)))
+        text, color = render(routes, None, datetime.now(ZONE), error, interval, config)
+        if watch and clicked:
+            watch_config = {**config, **watch["config"], "_watch": watch}
+            watched, watch_error = load_routes(watch_config, [watch["via"]], refresh=False)
+            text, color = render(watched, None, datetime.now(ZONE), watch_error, interval, watch_config)
+
+    if args.text or args.diagnostics:
+        if config is None:
+            print("API-konfiguration saknas")
+            return
+        if args.diagnostics:
+            cached = next(iter(routes.values()), {})
+            age = round(time.time() - cached["fetched"]) if cached.get("fetched") else None
+            print(json.dumps({"mode": "watch" if config.get("_watch") else "next", "cache_age_seconds": age,
+                              "last_fetch": cached.get("diagnostics"), "error": error}, ensure_ascii=False))
+        else:
+            fetched = min((cached.get("fetched", 0) for cached in routes.values()), default=0)
+            if fetched:
+                print(f"Hämtat {datetime.fromtimestamp(fetched, ZONE):%H:%M}")
+            if error or time.time() - fetched > max(60, int(config.get("interval_seconds", 60))) + 30:
+                print("Gamla eller saknade uppgifter")
+            ready = now + timedelta(minutes=departure_target(config)[1])
+            options = [option for via, cached in routes.items()
+                       for option in journey_options(cached.get("results", []), ready, via=via)]
+            options = sorted(best_connections(options), key=lambda option: (option["arrival"], option["via"] != "C"))
+            for option in options:
+                print(itinerary_text(option, config))
+            alerts = dict.fromkeys(alert for via, cached in routes.items()
+                                   for alert in traffic_alerts(cached.get("results", []), now, via))
+            for alert in alerts:
+                print(f"! {alert}")
+            if not options:
+                print("Inga genomförbara reseförslag hittades")
+            if error:
+                print(f"Hämtningsfel: {error}")
+        return
+    print(f"{text}\n{text}\n{COLORS[color]}", flush=True)
+    if clicked and config is not None:
+        show_journeys(config, routes, error)
+
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError) as error:
+        # Do not print HTTP bodies, tokens or configuration values to the bar/log.
+        print(f"🚋 ?\n🚋 ?\n{COLORS['warning']}")
+        print(f"Västtrafik: kontrollera {CONFIG} ({type(error).__name__})", file=sys.stderr)
+        sys.exit(1)
