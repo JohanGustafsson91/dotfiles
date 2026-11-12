@@ -12,7 +12,8 @@ for zone in /sys/class/thermal/thermal_zone*/; do
                 elif [ "$temp" -ge 70 ]; then
                     color='#FFCC66'
                 else
-                    color='#CBE0F0'
+                    printf '\n\n\n'
+                    exit 0
                 fi
                 text=" $temp°C"
                 printf '%s\n%s\n%s\n' "$text" "$text" "$color"

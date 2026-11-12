@@ -424,7 +424,8 @@ Tests: `python3 -m unittest discover -s tests -p 'test_touchscreen.py' -v`.
   after fifteen minutes. Opening the lid or docking cancels the countdown.
   Existing locking before suspend and separate idle locking still apply.
   If the script exits, systemd resumes its normal lid handling.
-- `i3/config` uses input ID `9` for natural scrolling. This ID is machine-specific.
+- `i3/config` selects the touchpad by its device name for natural scrolling.
+  Adjust the name for different hardware.
 - “Office monitors” uses `scripts/office-monitors.sh` for four screens with fixed
   connector names. The older three-screen office layout and the home layout
   are also kept in `scripts/`. Adjust these for your hardware. “Single monitor”
@@ -460,3 +461,24 @@ The workspace must already be open.
 Restoration state is stored in `XDG_RUNTIME_DIR`, separately for each i3 session.
 If the monitor layout changes, the workspace closes or it is moved manually,
 the old placement is no longer used. The next selection uses the current setup.
+
+## Desktop appearance and formatting
+
+The desktop uses the Night Owl background with a mint focus accent. i3 gaps are
+6 px inner / 4 px outer; terminal padding remains 10 px. Neovim uses thin buffer
+separators and a simplified status line with matching colors.
+
+CPU, memory, temperature and disk blocks stay hidden below their warning
+thresholds: 70%, 75%, 70°C and 75%, respectively. Missing readings still show
+`n/a`; critical thresholds and polling intervals are unchanged.
+
+Neovim selects Biome or Prettier on each formatting request from the buffer's
+path, independently of the working directory. The nearest `biome.json` or
+`biome.jsonc` selects Biome; searching stops at the nearest Git root. Without
+such a configuration, Prettier is used. Other configured formatters are unchanged.
+
+Workspace shortcuts: left Alt+1–9/0 switches to workspace 1–9/10;
+left Alt+Shift+1–9/0 moves the focused window there. Existing F-key shortcuts
+remain available, Super remains the main i3 modifier, and AltGr keeps its
+special characters. The number-row bindings use X keycodes 10–19 so Shift
+works with the Swedish keyboard layout.

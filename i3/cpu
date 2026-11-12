@@ -8,7 +8,8 @@ if [ -n "$usage" ]; then
     elif [ "$usage" -ge 70 ]; then
         color='#FFCC66'
     else
-        color='#CBE0F0'
+        printf '\n\n\n'
+        exit 0
     fi
     text=" $usage%"
 else

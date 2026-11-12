@@ -6,7 +6,7 @@ return {
   opts = {
     options = {
       mode = "buffers", -- Changed from "tabs" to show actual buffers
-      separator_style = "slant",
+      separator_style = "thin",
       diagnostics = "nvim_lsp", -- Show LSP diagnostics in bufferline
       diagnostics_indicator = function(count, level)
         local icon = level:match("error") and " " or " "

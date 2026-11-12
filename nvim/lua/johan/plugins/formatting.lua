@@ -4,22 +4,30 @@ return {
 	config = function()
 		local conform = require("conform")
 
-		-- Helper function to check if biome.json exists
-		local function has_biome_file()
-			local uv = vim.loop
-			local cwd = vim.fn.getcwd()
-			local biome_path = cwd .. "/biome.json"
-			local stat = uv.fs_stat(biome_path)
-			return stat ~= nil
-		end
-
-		-- Set formatters dynamically based on the existence of biome.json
-		local function get_formatters()
-			if has_biome_file() then
-				return "biome"
-			else
-				return "prettier"
+		-- Resolve each buffer independently, stopping at its nearest Git root.
+		local function get_formatters(bufnr)
+			local filename = vim.api.nvim_buf_get_name(bufnr)
+			if filename == "" then
+				return { "prettier" }
 			end
+			local directory = vim.fs.dirname(filename)
+			while directory do
+				for _, name in ipairs({ "biome.json", "biome.jsonc" }) do
+					local stat = vim.uv.fs_stat(directory .. "/" .. name)
+					if stat and stat.type == "file" then
+						return { "biome" }
+					end
+				end
+				if vim.uv.fs_stat(directory .. "/.git") then
+					break
+				end
+				local parent = vim.fs.dirname(directory)
+				if parent == directory then
+					break
+				end
+				directory = parent
+			end
+			return { "prettier" }
 		end
 
 		-- Configure conform.nvim
@@ -32,18 +40,18 @@ return {
 				},
 			},
 			formatters_by_ft = {
-				javascript = { get_formatters() },
-				typescript = { get_formatters() },
-				javascriptreact = { get_formatters() },
-				typescriptreact = { get_formatters() },
-				svelte = { get_formatters() },
-				css = { get_formatters() },
-				html = { get_formatters() },
-				json = { get_formatters() },
-				yaml = { get_formatters() },
-				markdown = { get_formatters() },
-				graphql = { get_formatters() },
-				liquid = { get_formatters() },
+				javascript = get_formatters,
+				typescript = get_formatters,
+				javascriptreact = get_formatters,
+				typescriptreact = get_formatters,
+				svelte = get_formatters,
+				css = get_formatters,
+				html = get_formatters,
+				json = get_formatters,
+				yaml = get_formatters,
+				markdown = get_formatters,
+				graphql = get_formatters,
+				liquid = get_formatters,
 				lua = { "stylua" },
 				python = { "isort", "black" },
 				xml = { "xmllint" },

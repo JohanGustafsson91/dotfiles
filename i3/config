@@ -152,6 +152,19 @@ set $ws10 "10: "
 # Workspace switching
 # ============================================================
 
+# Left Alt + number row (1-9, 0); keycodes also work with Swedish Shift symbols.
+# AltGr uses Mod5 and is not bound here.
+bindcode Mod1+10 workspace number $ws1
+bindcode Mod1+11 workspace number $ws2
+bindcode Mod1+12 workspace number $ws3
+bindcode Mod1+13 workspace number $ws4
+bindcode Mod1+14 workspace number $ws5
+bindcode Mod1+15 workspace number $ws6
+bindcode Mod1+16 workspace number $ws7
+bindcode Mod1+17 workspace number $ws8
+bindcode Mod1+18 workspace number $ws9
+bindcode Mod1+19 workspace number $ws10
+
 # F1-F10 = workspace switching
 bindsym F1 workspace number $ws1
 bindsym F2 workspace number $ws2
@@ -198,6 +211,18 @@ mode "Center workspace: F1-F10 / Escape" {
 # ============================================================
 # Move focused container to workspace
 # ============================================================
+
+# Left Alt + Shift + number row moves the focused window.
+bindcode Mod1+Shift+10 move container to workspace number $ws1
+bindcode Mod1+Shift+11 move container to workspace number $ws2
+bindcode Mod1+Shift+12 move container to workspace number $ws3
+bindcode Mod1+Shift+13 move container to workspace number $ws4
+bindcode Mod1+Shift+14 move container to workspace number $ws5
+bindcode Mod1+Shift+15 move container to workspace number $ws6
+bindcode Mod1+Shift+16 move container to workspace number $ws7
+bindcode Mod1+Shift+17 move container to workspace number $ws8
+bindcode Mod1+Shift+18 move container to workspace number $ws9
+bindcode Mod1+Shift+19 move container to workspace number $ws10
 
 bindsym Shift+F1 move container to workspace number $ws1
 bindsym Shift+F2 move container to workspace number $ws2
@@ -307,8 +332,8 @@ client.urgent #E52E2E #011423 #FFFFFF #E52E2E #E52E2E
 # ============================================================
 
 # Same as AeroSpace
-gaps inner 10
-gaps outer 8
+gaps inner 6
+gaps outer 4
 
 # ============================================================
 # i3bar / i3blocks
@@ -372,7 +397,7 @@ exec_always setxkbmap -option caps:ctrl_modifier
 # Touchpad
 # ============================================================
 
-exec_always xinput set-prop 9 "libinput Natural Scrolling Enabled" 1
+exec_always xinput set-prop "SYNA800E:00 06CB:CE67 Touchpad" "libinput Natural Scrolling Enabled" 1
 
 # External mouse
 exec_always xinput set-prop "PixArt USB Optical Mouse" "libinput Natural Scrolling Enabled" 1
@@ -391,4 +416,4 @@ bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 10%-
 # Wallpaper
 # ============================================================
 
-# exec_always feh --bg-scale ~/Pictures/bg.jpg
+exec_always --no-startup-id feh --bg-fill ~/.config/wallpapers/icon-logo-wallpaper-sprout-wide@2x.png

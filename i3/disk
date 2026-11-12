@@ -12,8 +12,8 @@ elif [ "$usage" -ge 75 ]; then
     text=" $usage%"
     color='#FFCC66'
 else
-    text=" $usage%"
-    color='#CBE0F0'
+    printf '\n\n\n'
+    exit 0
 fi
 
 printf '%s\n%s\n%s\n' "$text" "$text" "$color"
